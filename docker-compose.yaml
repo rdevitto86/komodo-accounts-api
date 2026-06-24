@@ -1,0 +1,80 @@
+name: komodo-user-api
+
+services:
+  user-api-public:
+    image: komodo-user-api-public:${VERSION:-dev}
+    build:
+      context: ..
+      dockerfile: komodo-user-api/Dockerfile
+      args:
+        BUILD_TARGET: public
+        DISTROLESS_TAG: ${DISTROLESS_TAG:-debug}
+    restart: ${RESTART_POLICY:-no}
+    deploy:
+      resources:
+        limits:
+          memory: ${MEM_LIMIT:-512M}
+    env_file:
+      - ../../infra/local/env.shared
+    environment:
+      APP_NAME: komodo-user-api
+      PORT: ":7051"
+      VERSION: ${VERSION:-dev}
+      EVAL_RULES_PATH: /app/config/validation_rules.yaml
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      AWS_SECRET_PATH: ${SECRET_PATH:-komodo/local/user-api}
+      DYNAMODB_TABLE: ${DYNAMODB_TABLE:-komodo-users-dev}
+    ports:
+      - "7051:7051"
+      - "7052:7052"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:7051/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - komodo-network
+
+  # Shares the public container's network namespace
+  # Accessible to other services on komodo-network as user-api-public:7052.
+  # On Fargate, both containers run in the same task and share the task network interface.
+  user-api-private:
+    image: komodo-user-api-private:${VERSION:-dev}
+    build:
+      context: ..
+      dockerfile: komodo-user-api/Dockerfile
+      args:
+        BUILD_TARGET: private
+        DISTROLESS_TAG: ${DISTROLESS_TAG:-debug}
+    network_mode: "service:user-api-public"
+    depends_on:
+      user-api-public:
+        condition: service_healthy
+
+    restart: ${RESTART_POLICY:-no}
+    deploy:
+      resources:
+        limits:
+          memory: ${MEM_LIMIT:-256M}
+    env_file:
+      - ../../infra/local/env.shared
+    environment:
+      APP_NAME: komodo-user-api-internal
+      PORT_PRIVATE: ":7052"
+      VERSION: ${VERSION:-dev}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      AWS_SECRET_PATH: ${SECRET_PATH:-komodo/local/user-api}
+      DYNAMODB_TABLE: ${DYNAMODB_TABLE:-komodo-users-dev}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:7052/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  komodo-network:
+    external: true

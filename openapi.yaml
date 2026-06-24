@@ -1,0 +1,953 @@
+openapi: "3.1.2"
+
+info:
+  title: Komodo User API
+  version: "1.0.0"
+  description: |
+    User profile, address, payment method, and preference management.
+
+    **Two servers:**
+    - Public (7051): customer-facing profile endpoints; require user JWT
+    - Internal (7052): service-to-service user lookup endpoints; require service JWT
+
+    **Auth:** All `/v1/me/profile`, `/v1/me/addresses`, `/v1/me/payments`, and `/v1/me/preferences`
+    routes require a user-scoped JWT (`Authorization: Bearer <token>`).
+    Internal `/v1/users/{id}/*` routes require a service-scoped JWT (`svc:` prefix claim).
+
+    **HTTP conventions:**
+    - POST → 201 Created / 400 Bad Request / 409 Conflict
+    - PUT → 200 OK / 404 Not Found
+    - DELETE → 204 No Content / 404 Not Found
+    - GET → 200 OK / 404 Not Found
+
+servers:
+  - url: http://localhost:7051
+    description: Public (local)
+  - url: http://localhost:7052
+    description: Internal (local)
+
+tags:
+  - name: Health
+  - name: Profile
+  - name: Addresses
+  - name: Payments
+  - name: Preferences
+  - name: Internal
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness check
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+
+  /v1/users/exists:
+    get:
+      tags: [Profile]
+      summary: Check if an email is registered
+      operationId: getUserExists
+      x-visibility: public
+      security: []
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+            format: email
+          description: Email address to check
+      responses:
+        "200":
+          description: Existence check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserExistsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  # ── Profile ──────────────────────────────────────────────────────────────
+
+  /v1/me/profile:
+    get:
+      tags: [Profile]
+      summary: Get authenticated user's profile
+      operationId: getProfile
+      x-visibility: public
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      tags: [Profile]
+      summary: Create user record (called on registration)
+      operationId: createUser
+      x-visibility: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+    put:
+      tags: [Profile]
+      summary: Update authenticated user's profile
+      operationId: updateProfile
+      x-visibility: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags: [Profile]
+      summary: Delete authenticated user's account
+      operationId: deleteProfile
+      x-visibility: public
+      responses:
+        "204":
+          description: Account deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Addresses ────────────────────────────────────────────────────────────
+
+  /v1/me/addresses:
+    get:
+      tags: [Addresses]
+      summary: List all addresses for the authenticated user
+      operationId: getAddresses
+      x-visibility: public
+      responses:
+        "200":
+          description: Address list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Address"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      tags: [Addresses]
+      summary: Add a new address
+      operationId: addAddress
+      x-visibility: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressInput"
+      responses:
+        "201":
+          description: Address created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Address"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/me/addresses/{id}:
+    parameters:
+      - $ref: "#/components/parameters/AddressID"
+
+    put:
+      tags: [Addresses]
+      summary: Update an address
+      operationId: updateAddress
+      x-visibility: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressInput"
+      responses:
+        "200":
+          description: Updated address
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Address"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags: [Addresses]
+      summary: Delete an address
+      operationId: deleteAddress
+      x-visibility: public
+      responses:
+        "204":
+          description: Address deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Payments ─────────────────────────────────────────────────────────────
+
+  /v1/me/payments:
+    get:
+      tags: [Payments]
+      summary: List saved payment methods
+      operationId: getPayments
+      x-visibility: public
+      responses:
+        "200":
+          description: Payment method list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PaymentMethod"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    put:
+      tags: [Payments]
+      summary: Add or update a payment method
+      operationId: upsertPayment
+      x-visibility: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentMethod"
+      responses:
+        "200":
+          description: Payment method saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentMethod"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/me/payments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/PaymentID"
+
+    delete:
+      tags: [Payments]
+      summary: Remove a payment method
+      operationId: deletePayment
+      x-visibility: public
+      responses:
+        "204":
+          description: Payment method removed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Preferences ──────────────────────────────────────────────────────────
+
+  /v1/me/preferences:
+    get:
+      tags: [Preferences]
+      summary: Get user preferences
+      operationId: getPreferences
+      x-visibility: public
+      responses:
+        "200":
+          description: User preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Preferences"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags: [Preferences]
+      summary: Update user preferences
+      operationId: updatePreferences
+      x-visibility: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Preferences"
+      responses:
+        "200":
+          description: Updated preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Preferences"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      tags: [Preferences]
+      summary: Delete user preferences
+      operationId: deletePreferences
+      x-visibility: public
+      responses:
+        "204":
+          description: Preferences deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Internal ─────────────────────────────────────────────────────────────
+
+  /v1/users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [Internal]
+      summary: Get profile by user ID (service-to-service)
+      operationId: internalGetUser
+      x-visibility: private
+      security:
+        - ServiceJWT: []
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/users/{id}/addresses:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [Internal]
+      summary: Get addresses for a user (service-to-service)
+      operationId: internalGetUserAddresses
+      x-visibility: private
+      security:
+        - ServiceJWT: []
+      responses:
+        "200":
+          description: Address list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Address"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/users/{id}/preferences:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [Internal]
+      summary: Get preferences for a user (service-to-service)
+      operationId: internalGetUserPreferences
+      x-visibility: private
+      security:
+        - ServiceJWT: []
+      responses:
+        "200":
+          description: User preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Preferences"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/users/{id}/payments:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [Internal]
+      summary: Get payment methods for a user (service-to-service)
+      operationId: internalGetUserPayments
+      x-visibility: private
+      security:
+        - ServiceJWT: []
+      responses:
+        "200":
+          description: Payment method list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PaymentMethod"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/users/credentials:
+    get:
+      tags: [Internal]
+      summary: Get credentials for login verification (service-to-service)
+      operationId: getUserCredentials
+      x-visibility: private
+      security:
+        - ServiceJWT: []
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+            format: email
+          description: Email address to look up
+      responses:
+        "200":
+          description: Credential fields for the given email
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/users/{id}/credentials:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    put:
+      tags: [Internal]
+      summary: Set or rotate user credentials (service-to-service)
+      operationId: updateUserCredentials
+      x-visibility: private
+      security:
+        - ServiceJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCredentialsRequest"
+      responses:
+        "204":
+          description: Credentials updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/users/{id}/passkeys:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      tags: [Internal]
+      summary: List passkey credentials for a user (service-to-service)
+      operationId: internalGetUserPasskeys
+      x-visibility: private
+      security:
+        - ServiceJWT: []
+      responses:
+        "200":
+          description: Passkey credential list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [credentials]
+                properties:
+                  credentials:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PasskeyCredential"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Internal]
+      summary: Create a passkey credential record (service-to-service)
+      operationId: internalCreateUserPasskey
+      x-visibility: private
+      security:
+        - ServiceJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyCredential"
+      responses:
+        "201":
+          description: Passkey credential created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyCredential"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /v1/users/{id}/passkeys/{credential_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+      - $ref: "#/components/parameters/CredentialID"
+    patch:
+      tags: [Internal]
+      summary: Update a passkey credential record (service-to-service)
+      operationId: internalUpdateUserPasskey
+      x-visibility: private
+      security:
+        - ServiceJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyCredential"
+      responses:
+        "200":
+          description: Updated passkey credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyCredential"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Internal]
+      summary: Delete a passkey credential record (service-to-service)
+      operationId: internalDeleteUserPasskey
+      x-visibility: private
+      security:
+        - ServiceJWT: []
+      responses:
+        "204":
+          description: Passkey credential deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+# ---------------------------------------------------------------------------
+# Components
+# ---------------------------------------------------------------------------
+components:
+
+  securitySchemes:
+    UserJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: User-scoped RS256 JWT issued by komodo-auth-api
+    ServiceJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Service-scoped RS256 JWT; must carry at least one `svc:` claim
+
+  parameters:
+    UserID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: User ID
+    AddressID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Address ID
+    PaymentID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Payment method ID
+    CredentialID:
+      name: credential_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: WebAuthn credential ID (base64url)
+
+  schemas:
+    User:
+      type: object
+      required: [user_id, username, email, first_name, last_name]
+      properties:
+        user_id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        first_name:
+          type: string
+        middle_initial:
+          type: string
+          maxLength: 1
+        last_name:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+
+    CreateUserRequest:
+      type: object
+      required: [username, email, first_name, last_name]
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        first_name:
+          type: string
+        middle_initial:
+          type: string
+          maxLength: 1
+        last_name:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+
+    UpdateUserRequest:
+      type: object
+      description: >-
+        Only the mutable fields below are applied. Immutable or server-managed
+        fields (user_id, username, email, auth_methods, created_at, updated_at)
+        are ignored if present in the request body.
+      properties:
+        phone:
+          type: string
+        first_name:
+          type: string
+        middle_initial:
+          type: string
+          maxLength: 1
+        last_name:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+
+    Address:
+      type: object
+      required: [address_id, line1, city, state, zip_code, country, is_default]
+      properties:
+        address_id:
+          type: string
+        alias:
+          type: string
+          description: Friendly label (e.g. "Home", "Work")
+        line1:
+          type: string
+        line2:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        zip_code:
+          type: string
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code (e.g. "US")
+        is_default:
+          type: boolean
+
+    AddressInput:
+      type: object
+      required: [line1, city, state, zip_code, country]
+      properties:
+        alias:
+          type: string
+        line1:
+          type: string
+        line2:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        zip_code:
+          type: string
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code (e.g. "US")
+        is_default:
+          type: boolean
+
+    Preferences:
+      type: object
+      properties:
+        language:
+          type: string
+          description: BCP 47 language tag (e.g. "en-US")
+        timezone:
+          type: string
+          description: IANA timezone (e.g. "America/New_York")
+        communication:
+          type: object
+          description: Notification channel opt-ins keyed by channel name (e.g. email, sms, push)
+          additionalProperties:
+            type: boolean
+        marketing:
+          type: object
+          description: Marketing preferences keyed by attribute (e.g. frequency, channel)
+          additionalProperties:
+            type: string
+
+    PaymentMethod:
+      type: object
+      description: Stored payment method reference — no raw card data, metadata only
+      required: [payment_id, provider, last4, brand, expiry_month, expiry_year, is_default]
+      properties:
+        payment_id:
+          type: string
+        provider:
+          type: string
+          description: Payment processor (e.g. "stripe")
+        last4:
+          type: string
+          description: Last 4 digits of the card number
+        brand:
+          type: string
+          description: Card network (e.g. "visa", "mastercard", "amex")
+        expiry_month:
+          type: integer
+          minimum: 1
+          maximum: 12
+        expiry_year:
+          type: integer
+        is_default:
+          type: boolean
+
+    CredentialsResponse:
+      type: object
+      description: Internal-only credential fields for auth-api login verification
+      required: [user_id, email_verified, auth_methods]
+      properties:
+        user_id:
+          type: string
+        password_hash:
+          type: string
+          description: Argon2id hash; empty for passwordless-only accounts
+        email_verified:
+          type: boolean
+        auth_methods:
+          type: array
+          items:
+            type: string
+            enum: [password, passkey, otp, google, apple]
+          description: Authentication methods registered for this account
+
+    UpdateCredentialsRequest:
+      type: object
+      description: Credential fields that auth-api may set or rotate. At least one field required.
+      properties:
+        password_hash:
+          type: string
+          description: Argon2id hash produced by auth-api
+        auth_methods:
+          type: array
+          items:
+            type: string
+            enum: [password, passkey, otp, google, apple]
+
+    UserExistsResponse:
+      type: object
+      required: [exists, auth_methods]
+      properties:
+        exists:
+          type: boolean
+        auth_methods:
+          type: array
+          items:
+            type: string
+            enum: [password, passkey, otp, google, apple]
+          description: Empty array when exists is false
+
+    PasskeyCredential:
+      type: object
+      description: WebAuthn credential record (ADR 002 §7) — public key bytes only
+      required: [credential_id, public_key, sign_count, backup_eligible, backup_state, created_at]
+      properties:
+        credential_id:
+          type: string
+          description: base64url-encoded WebAuthn credential ID; natural unique key
+        public_key:
+          type: string
+          description: base64-encoded COSE public key bytes
+        sign_count:
+          type: integer
+          format: int64
+          minimum: 0
+        transports:
+          type: array
+          items:
+            type: string
+        aaguid:
+          type: string
+          description: base64-encoded authenticator AAGUID
+        backup_eligible:
+          type: boolean
+        backup_state:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: [string, "null"]
+          format: date-time
+
+    ProblemDetail:
+      type: object
+      description: RFC 7807 Problem+JSON error body
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    Forbidden:
+      description: JWT present but insufficient scope
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    Conflict:
+      description: Resource already exists
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+
+security:
+  - UserJWT: []

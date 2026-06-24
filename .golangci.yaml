@@ -1,0 +1,83 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    # Correctness
+    - errcheck       # unchecked errors
+    - govet          # vet checks (shadow, printf, etc.)
+    - ineffassign    # useless assignments
+    - staticcheck    # advanced static analysis (subsumes gosimple in v2)
+    - unused         # unused code
+
+    # Style / best practices
+    - revive         # opinionated style rules (replaces golint)
+    - misspell       # typos in comments/strings
+
+    # Security
+    - gosec          # common security issues
+
+    # Complexity / maintainability
+    - cyclop         # cyclomatic complexity
+    - gocognit       # cognitive complexity
+
+    # Error handling
+    - wrapcheck      # errors from external pkgs should be wrapped
+    - errorlint      # correct error wrapping/comparison
+
+    # Context
+    - contextcheck   # context passed correctly through call chains
+
+  settings:
+    cyclop:
+      max-complexity: 15
+
+    gocognit:
+      min-complexity: 20
+
+    gosec:
+      excludes:
+        - G101   # env-key constant names, not embedded credentials
+        - G104   # os.Setenv passthrough in main bootstrap (errcheck-excluded there too)
+        - G115   # integer overflow — not applicable here
+
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: var-naming
+          disabled: true
+        - name: error-return
+          disabled: false
+
+    wrapcheck:
+      ignore-package-globs:
+        - komodo-forge-sdk-go/*   # internal SDK, wrapping optional
+
+    errorlint:
+      errorf: true
+      comparison: true
+
+  exclusions:
+    rules:
+      # Test files: relax wrapcheck and gosec
+      - path: "_test\\.go"
+        linters:
+          - wrapcheck
+          - gosec
+          - errcheck
+
+      # main.go: os.Exit after logger.Fatal is intentional; secret env passthrough
+      - path: "main\\.go"
+        linters:
+          - contextcheck
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt        # formatting
+    - goimports    # import ordering
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
