@@ -1,5 +1,82 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.a
+/bin/
+/dist/
+/build/
+go.work
+go.work.sum
+
+# Test coverage
+coverage.out
+coverage.html
+*.coverprofile
+c.out
+
+# Profiling
+*.pprof
+cpu.prof
+mem.prof
+trace.out
+
+# Generated
+*.pb.go
+*_mock.go
+mock_*.go
+
+# Debugger
+__debug_bin
+__debug_bin*
+
+# Air
+air.toml
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Docker
+.docker/
+
+# Logs
+*.log
+logs/
+
+# Temporary
+tmp/
+temp/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.history/
+*.iml
+
+# AI
 AGENTS.md
 CLAUDE.md
 .claude
 MEMORY.md
 TODO.md
+.mcp.json
