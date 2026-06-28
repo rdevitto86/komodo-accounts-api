@@ -6,31 +6,36 @@ import (
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
 )
 
-// 30xxx — komodo-customer-api (see forge-sdk ranges.go)
 type UserAPIErrors struct {
-	NotFound           httpErr.ErrorCode
-	AlreadyExists      httpErr.ErrorCode
-	AccountLocked      httpErr.ErrorCode
-	AccountSuspended   httpErr.ErrorCode
-	EmailNotVerified   httpErr.ErrorCode
-	PhoneNotVerified   httpErr.ErrorCode
-	InvalidCredentials httpErr.ErrorCode
-	PasswordExpired    httpErr.ErrorCode
-	WeakPassword       httpErr.ErrorCode
-	MFARequired        httpErr.ErrorCode
-	InvalidMFACode     httpErr.ErrorCode
+	NotFound                 httpErr.ErrorCode
+	AlreadyExists            httpErr.ErrorCode
+	AccountLocked            httpErr.ErrorCode
+	AccountSuspended         httpErr.ErrorCode
+	EmailNotVerified         httpErr.ErrorCode
+	PhoneNotVerified         httpErr.ErrorCode
+	InvalidCredentials       httpErr.ErrorCode
+	PasswordExpired          httpErr.ErrorCode
+	WeakPassword             httpErr.ErrorCode
+	MFARequired              httpErr.ErrorCode
+	InvalidMFACode           httpErr.ErrorCode
+	PasskeyAlreadyExists     httpErr.ErrorCode
+	ForbiddenNamespace       httpErr.ErrorCode
+	MarketingConsentMismatch httpErr.ErrorCode
 }
 
 var Err = UserAPIErrors{
-	NotFound:           httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 1), Status: http.StatusNotFound, Message: "User not found"},
-	AlreadyExists:      httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 2), Status: http.StatusConflict, Message: "User already exists"},
-	AccountLocked:      httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 3), Status: http.StatusForbidden, Message: "Account locked"},
-	AccountSuspended:   httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 4), Status: http.StatusForbidden, Message: "Account suspended"},
-	EmailNotVerified:   httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 5), Status: http.StatusForbidden, Message: "Email not verified"},
-	PhoneNotVerified:   httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 6), Status: http.StatusForbidden, Message: "Phone not verified"},
-	InvalidCredentials: httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 7), Status: http.StatusUnauthorized, Message: "Invalid credentials"},
-	PasswordExpired:    httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 8), Status: http.StatusForbidden, Message: "Password expired"},
-	WeakPassword:       httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 9), Status: http.StatusBadRequest, Message: "Weak password"},
-	MFARequired:        httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 10), Status: http.StatusForbidden, Message: "MFA required"},
-	InvalidMFACode:     httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 11), Status: http.StatusUnauthorized, Message: "Invalid MFA code"},
+	NotFound:                 httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 1), Status: http.StatusNotFound, Message: "User not found"},
+	AlreadyExists:            httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 2), Status: http.StatusConflict, Message: "User already exists"},
+	AccountLocked:            httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 3), Status: http.StatusForbidden, Message: "Account locked"},
+	AccountSuspended:         httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 4), Status: http.StatusForbidden, Message: "Account suspended"},
+	EmailNotVerified:         httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 5), Status: http.StatusForbidden, Message: "Email not verified"},
+	PhoneNotVerified:         httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 6), Status: http.StatusForbidden, Message: "Phone not verified"},
+	InvalidCredentials:       httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 7), Status: http.StatusUnauthorized, Message: "Invalid credentials"},
+	PasswordExpired:          httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 8), Status: http.StatusForbidden, Message: "Password expired"},
+	WeakPassword:             httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 9), Status: http.StatusBadRequest, Message: "Weak password"},
+	MFARequired:              httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 10), Status: http.StatusForbidden, Message: "MFA required"},
+	InvalidMFACode:           httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 11), Status: http.StatusUnauthorized, Message: "Invalid MFA code"},
+	PasskeyAlreadyExists:     httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 12), Status: http.StatusConflict, Message: "Passkey already exists"},
+	ForbiddenNamespace:       httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 13), Status: http.StatusForbidden, Message: "Forbidden tag namespace"},
+	MarketingConsentMismatch: httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 14), Status: http.StatusBadRequest, Message: "Marketing consent must be recorded via the consent log, not preferences"},
 }

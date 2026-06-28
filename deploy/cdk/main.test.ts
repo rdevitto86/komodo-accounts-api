@@ -5,7 +5,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import type { UserEnvConfig, ServiceBuildContext } from './main.js';
+import type { CustomerEnvConfig, ServiceBuildContext } from './main.js';
 import {
   DEV_CONFIG,
   STG_CONFIG,
@@ -17,8 +17,8 @@ import {
   buildPublicContainer,
   buildPrivateContainer,
   buildWaf,
-  buildUserAlarms,
-  buildUserDynamoDB,
+  buildCustomerAlarms,
+  buildCustomersTable,
   createInfra,
 } from './main.js';
 
@@ -30,7 +30,7 @@ function makeStack(): [cdk.Stack, cdk.App] {
   return [stack, app];
 }
 
-function makeCtx(stack: cdk.Stack, cfg: UserEnvConfig): ServiceBuildContext {
+function makeCtx(stack: cdk.Stack, cfg: CustomerEnvConfig): ServiceBuildContext {
   const vpc = ec2.Vpc.fromLookup(stack, 'Vpc', { tags: { Name: cfg.vpcTag } });
   const cluster = new ecs.Cluster(stack, 'Cluster', { vpc });
   const logGroup = new logs.LogGroup(stack, 'LogGroup');
@@ -44,7 +44,7 @@ describe('configs', () => {
       memory: 512,
       minCapacity: 1,
       maxCapacity: 1,
-      usersTable: 'komodo-users-dev',
+      customersTable: 'komodo-customers-dev',
       secretPath: 'komodo/dev/customer-api',
       vpcTag: 'komodo-dev',
       domainName: 'customer-dev.komodo.com',
@@ -58,7 +58,7 @@ describe('configs', () => {
       cpu: 512,
       memory: 1024,
       maxCapacity: 3,
-      usersTable: 'komodo-users-stg',
+      customersTable: 'komodo-customers-stg',
       secretPath: 'komodo/staging/customer-api',
       vpcTag: 'komodo-staging',
       domainName: 'customer-staging.komodo.com',
@@ -71,7 +71,7 @@ describe('configs', () => {
       cpu: 1024,
       memory: 2048,
       maxCapacity: 6,
-      usersTable: 'komodo-users-prod',
+      customersTable: 'komodo-customers-prod',
       secretPath: 'komodo/prod/customer-api',
       domainName: 'customer.komodo.com',
     });
@@ -94,7 +94,7 @@ describe('buildPublicContainer', () => {
             Match.objectLike({ Name: 'APP_NAME', Value: API_NAME }),
             Match.objectLike({ Name: 'PORT', Value: `:${PUBLIC_PORT}` }),
             Match.objectLike({ Name: 'AWS_REGION', Value: 'us-east-2' }),
-            Match.objectLike({ Name: 'DYNAMODB_TABLE', Value: 'komodo-users-dev' }),
+            Match.objectLike({ Name: 'DYNAMODB_TABLE', Value: 'komodo-customers-dev' }),
           ]),
         }),
       ]),
@@ -174,7 +174,7 @@ describe('buildPrivateContainer', () => {
             Match.objectLike({ Name: 'APP_NAME', Value: `${API_NAME}-internal` }),
             Match.objectLike({ Name: 'PORT_PRIVATE', Value: `:${PRIVATE_PORT}` }),
             Match.objectLike({ Name: 'AWS_REGION', Value: 'us-east-2' }),
-            Match.objectLike({ Name: 'DYNAMODB_TABLE', Value: 'komodo-users-dev' }),
+            Match.objectLike({ Name: 'DYNAMODB_TABLE', Value: 'komodo-customers-dev' }),
           ]),
         }),
       ]),
@@ -212,12 +212,12 @@ describe('buildWaf', () => {
   });
 });
 
-describe('buildUserAlarms', () => {
+describe('buildCustomerAlarms', () => {
   it('creates metric filters and alarms', () => {
     const [stack] = makeStack();
     const ctx = makeCtx(stack, DEV_CONFIG);
     const pub = buildPublicContainer(stack, ctx);
-    buildUserAlarms(stack, ctx.logGroup, pub.alb);
+    buildCustomerAlarms(stack, ctx.logGroup, pub.alb);
     const template = Template.fromStack(stack);
 
     template.resourceCountIs('AWS::Logs::MetricFilter', 2);
@@ -225,12 +225,19 @@ describe('buildUserAlarms', () => {
   });
 });
 
-describe('buildUserDynamoDB', () => {
-  it('grants DynamoDB read and write access to provided roles', () => {
+describe('buildCustomersTable', () => {
+  it('creates DynamoDB table with correct configuration and grants access', () => {
     const [stack] = makeStack();
     const role = new iam.Role(stack, 'TestRole', { assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com') });
-    buildUserDynamoDB(stack, 'komodo-users-dev', role);
+    buildCustomersTable(stack, 'dev', 'komodo-customers-dev', role, role);
     const template = Template.fromStack(stack);
+
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      BillingMode: 'PAY_PER_REQUEST',
+      StreamSpecification: {
+        StreamViewType: 'NEW_AND_OLD_IMAGES',
+      },
+    });
 
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: Match.objectLike({
@@ -262,7 +269,8 @@ describe('buildStack', () => {
     template.hasOutput('PublicServiceName', {});
     template.hasOutput('PrivateServiceName', {});
     template.hasOutput('DomainName', {});
-    template.hasOutput('UsersTableName', {});
+    template.hasOutput('CustomersTableName', {});
+    template.hasOutput('CustomersTableStreamArn', {});
 
     expect(() => template.hasOutput('WafWebAclArn', {})).toThrow();
   });
@@ -279,7 +287,8 @@ describe('buildStack', () => {
     template.hasOutput('PublicServiceName', {});
     template.hasOutput('PrivateServiceName', {});
     template.hasOutput('DomainName', {});
-    template.hasOutput('UsersTableName', {});
+    template.hasOutput('CustomersTableName', {});
+    template.hasOutput('CustomersTableStreamArn', {});
     template.hasOutput('WafWebAclArn', {});
   });
 

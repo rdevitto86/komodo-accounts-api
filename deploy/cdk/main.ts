@@ -7,6 +7,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import { fileURLToPath } from 'node:url';
 import { ENV_DEV, ENV_STAGING, ENV_PROD } from 'komodo-forge-sdk-ts/cdk/constants';
 import type { EnvConfig } from 'komodo-forge-sdk-ts/cdk/config';
@@ -32,15 +33,15 @@ export const PUBLIC_VERSION = 'latest';
 export const PRIVATE_VERSION = 'latest';
 export const EVAL_RULES_PATH = '/app/config/validation_rules.yaml';
 
-export interface UserEnvConfig extends EnvConfig {
-  usersTable: string;
+export interface CustomerEnvConfig extends EnvConfig {
+  customersTable: string;
 }
 
-export const DEV_CONFIG: UserEnvConfig = {
+export const DEV_CONFIG: CustomerEnvConfig = {
   ...defaultDevConfig(),
   name: API_NAME,
   maxCapacity: 1,
-  usersTable: 'komodo-users-dev',
+  customersTable: 'komodo-customers-dev',
   certificateArn: 'PLACEHOLDER-acm-cert-arn-us-east-2',
   secretPath: `komodo/${ENV_DEV}/${CONTAINER_NAME}`,
   vpcTag: `komodo-${ENV_DEV}`,
@@ -53,10 +54,10 @@ export const DEV_CONFIG: UserEnvConfig = {
   },
 };
 
-export const STG_CONFIG: UserEnvConfig = {
+export const STG_CONFIG: CustomerEnvConfig = {
   ...defaultStgConfig(),
   name: API_NAME,
-  usersTable: 'komodo-users-stg',
+  customersTable: 'komodo-customers-stg',
   certificateArn: 'PLACEHOLDER-acm-cert-arn-us-east-2',
   cloudFrontCertificateArn: 'PLACEHOLDER-acm-cert-arn-us-east-1',
   secretPath: `komodo/${ENV_STAGING}/${CONTAINER_NAME}`,
@@ -70,10 +71,10 @@ export const STG_CONFIG: UserEnvConfig = {
   },
 };
 
-export const PROD_CONFIG: UserEnvConfig = {
+export const PROD_CONFIG: CustomerEnvConfig = {
   ...defaultProdConfig(),
   name: API_NAME,
-  usersTable: 'komodo-users-prod',
+  customersTable: 'komodo-customers-prod',
   certificateArn: 'PLACEHOLDER-acm-cert-arn-us-east-2',
   cloudFrontCertificateArn: 'PLACEHOLDER-acm-cert-arn-us-east-1',
   secretPath: `komodo/${ENV_PROD}/${CONTAINER_NAME}`,
@@ -91,7 +92,7 @@ export interface ServiceBuildContext {
   vpc: ec2.IVpc;
   cluster: ecs.ICluster;
   logGroup: logs.ILogGroup;
-  cfg: UserEnvConfig;
+  cfg: CustomerEnvConfig;
 }
 
 export const buildPublicContainer = (stack: cdk.Stack, { vpc, cluster, logGroup, cfg }: ServiceBuildContext): FargatePublicService =>
@@ -120,7 +121,7 @@ export const buildPublicContainer = (stack: cdk.Stack, { vpc, cluster, logGroup,
       VERSION: PUBLIC_VERSION,
       EVAL_RULES_PATH: EVAL_RULES_PATH,
       AWS_REGION: cfg.regions[0].region,
-      DYNAMODB_TABLE: cfg.usersTable,
+      DYNAMODB_TABLE: cfg.customersTable,
       AWS_SECRET_PATH: cfg.secretPath ?? '',
     },
   });
@@ -149,7 +150,7 @@ export const buildPrivateContainer = (stack: cdk.Stack, { vpc, cluster, logGroup
       PORT_PRIVATE: `:${PRIVATE_PORT}`,
       VERSION: PRIVATE_VERSION,
       AWS_REGION: cfg.regions[0].region,
-      DYNAMODB_TABLE: cfg.usersTable,
+      DYNAMODB_TABLE: cfg.customersTable,
       AWS_SECRET_PATH: cfg.secretPath ?? '',
     },
   });
@@ -176,7 +177,7 @@ export const buildWaf = (stack: cdk.Stack, alb: elbv2.ApplicationLoadBalancer): 
   ],
 });
 
-export const buildUserAlarms = (stack: cdk.Stack, logGroup: logs.ILogGroup, alb: elbv2.ApplicationLoadBalancer) => {
+export const buildCustomerAlarms = (stack: cdk.Stack, logGroup: logs.ILogGroup, alb: elbv2.ApplicationLoadBalancer) => {
   new MetricFilterAlarm(stack, 'User5xx', {
     logGroup,
     filterPattern: '{ $.status >= 500 }',
@@ -210,14 +211,49 @@ export const buildUserAlarms = (stack: cdk.Stack, logGroup: logs.ILogGroup, alb:
     .build();
 };
 
-export const buildUserDynamoDB = (stack: cdk.Stack, tableName: string, ...taskRoles: iam.IRole[]) => {
-  const table = dynamodb.Table.fromTableName(stack, 'UsersTable', tableName);
-  for (const role of taskRoles) {
-    table.grantReadWriteData(role);
-  }
+export const buildCustomersTable = (stack: cdk.Stack, env: string, customersTable: string, privateRole: iam.IRole, publicRole: iam.IRole): dynamodb.Table => {
+  const isProd = env !== 'dev';
+  const table = new dynamodb.Table(stack, 'CustomersTable', {
+    tableName: customersTable,
+    partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+    sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+    billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
+    pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+    encryption: dynamodb.TableEncryption.AWS_MANAGED,
+    deletionProtection: isProd,
+    removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+  });
+  table.addGlobalSecondaryIndex({
+    indexName: 'GSI1',
+    partitionKey: { name: 'GSI1PK', type: dynamodb.AttributeType.STRING },
+    sortKey: { name: 'GSI1SK', type: dynamodb.AttributeType.STRING },
+    projectionType: dynamodb.ProjectionType.INCLUDE,
+    nonKeyAttributes: ['customer_id'],
+  });
+  table.grantReadWriteData(privateRole);
+  table.grantReadData(publicRole);
+  return table;
 };
 
-export const buildStack = (stack: cdk.Stack, cfg: UserEnvConfig): void => {
+export const buildCustomerExportsBucket = (stack: cdk.Stack, env: string, privateRole: iam.IRole, publicRole: iam.IRole): s3.Bucket => {
+  const isProd = env !== 'dev';
+  const bucket = new s3.Bucket(stack, 'CustomerExports', {
+    bucketName: `komodo-customer-exports-${env}`,
+    blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+    enforceSSL: true,
+    encryption: s3.BucketEncryption.S3_MANAGED,
+    versioned: false,
+    removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+    autoDeleteObjects: !isProd,
+    lifecycleRules: [{ expiration: cdk.Duration.days(7) }],
+  });
+  bucket.grantWrite(privateRole);
+  bucket.grantRead(publicRole);
+  return bucket;
+};
+
+export const buildStack = (stack: cdk.Stack, cfg: CustomerEnvConfig): void => {
   const logGroup = createLogGroup(stack)
     .setLogGroupName(`/ecs/${API_NAME}-${cfg.env}`)
     .setRetention(logs.RetentionDays.ONE_MONTH)
@@ -236,19 +272,21 @@ export const buildStack = (stack: cdk.Stack, cfg: UserEnvConfig): void => {
     }
   }
 
-  buildUserDynamoDB(stack, cfg.usersTable, publicSvc.taskDefinition.taskRole, privateSvc.taskDefinition.taskRole);
+  const table = buildCustomersTable(stack, cfg.env, cfg.customersTable, privateSvc.taskDefinition.taskRole, publicSvc.taskDefinition.taskRole);
+  buildCustomerExportsBucket(stack, cfg.env, privateSvc.taskDefinition.taskRole, publicSvc.taskDefinition.taskRole);
 
   new cdk.CfnOutput(stack, 'AlbDnsName', { value: publicSvc.alb.loadBalancerDnsName });
   new cdk.CfnOutput(stack, 'ClusterName', { value: cluster.clusterName });
   new cdk.CfnOutput(stack, 'PublicServiceName', { value: publicSvc.service.serviceName });
   new cdk.CfnOutput(stack, 'PrivateServiceName', { value: privateSvc.service.serviceName });
   new cdk.CfnOutput(stack, 'DomainName', { value: cfg.domainName });
-  new cdk.CfnOutput(stack, 'UsersTableName', { value: cfg.usersTable });
+  new cdk.CfnOutput(stack, 'CustomersTableName', { value: cfg.customersTable });
+  new cdk.CfnOutput(stack, 'CustomersTableStreamArn', { value: table.tableStreamArn! });
 
   if (cfg.env === 'dev') return;
 
   const waf = buildWaf(stack, publicSvc.alb);
-  buildUserAlarms(stack, logGroup, publicSvc.alb);
+  buildCustomerAlarms(stack, logGroup, publicSvc.alb);
 
   new cdk.CfnOutput(stack, 'WafWebAclArn', { value: waf.webAcl.attrArn });
 };

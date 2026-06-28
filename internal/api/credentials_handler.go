@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
+	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 
 	"komodo-customer-api/internal/models"
 )
@@ -46,6 +47,7 @@ func (s *Service) UpdateCredentialsHandler(wtr http.ResponseWriter, req *http.Re
 		return
 	}
 
+	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "credentials"))
 	wtr.WriteHeader(http.StatusNoContent)
 }
 

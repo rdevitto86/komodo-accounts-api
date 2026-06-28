@@ -1,0 +1,30 @@
+flowchart TB
+    subgraph Internet
+        USR[end user]
+    end
+
+    subgraph AWS_VPC[AWS VPC]
+        subgraph PUB[Public subnets]
+            ALB[ALB + WAF]
+        end
+        subgraph PRV[Private subnets]
+            PUBSVC[Fargate<br/>customer-api-public<br/>:7051]
+            PRVSVC[Fargate<br/>customer-api-private<br/>:7052]
+        end
+    end
+
+    DDB[(DynamoDB<br/>komodo-customers)]
+    S3[(S3<br/>komodo-customer-exports)]
+    SM[Secrets Manager]
+    CW[CloudWatch Logs + Alarms]
+
+    USR -->|HTTPS| ALB
+    ALB --> PUBSVC
+    PUBSVC --> DDB
+    PUBSVC --> S3
+    PUBSVC --> SM
+    PRVSVC --> DDB
+    PRVSVC --> S3
+    PRVSVC --> SM
+    PUBSVC --> CW
+    PRVSVC --> CW

@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	awsddbsvc "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"komodo-customer-api/internal/api"
 	"komodo-customer-api/internal/db"
@@ -35,6 +36,8 @@ const (
 	DYNAMODB_TABLE             = "DYNAMODB_TABLE"
 	CUSTOMER_API_CLIENT_ID     = "CUSTOMER_API_CLIENT_ID"
 	CUSTOMER_API_CLIENT_SECRET = "CUSTOMER_API_CLIENT_SECRET"
+	S3_EXPORT_BUCKET           = "S3_EXPORT_BUCKET"
+	UNSUBSCRIBE_TOKEN_SECRET   = "UNSUBSCRIBE_TOKEN_SECRET"
 )
 
 var secretKeys = []string{
@@ -51,9 +54,11 @@ var secretKeys = []string{
 	sdkhttp.RATE_LIMIT_RPS,
 	sdkhttp.RATE_LIMIT_BURST,
 	sdkhttp.BUCKET_TTL_SECOND,
+	S3_EXPORT_BUCKET,
+	UNSUBSCRIBE_TOKEN_SECRET,
 }
 
-func bootstrap(ctx context.Context) (*jwt.Client, *awsddb.Client) {
+func bootstrap(ctx context.Context) (*jwt.Client, *awsddb.Client, *awss3.Client) {
 	if err := logger.Init(logger.Config{
 		Level:  os.Getenv(sdklog.LOG_LEVEL),
 		Format: logger.FormatJSON,
@@ -99,8 +104,14 @@ func bootstrap(ctx context.Context) (*jwt.Client, *awsddb.Client) {
 		logger.Fatal("failed to initialize dynamodb", err)
 	}
 
+	s3Cfg, err := awscfg.LoadDefaultConfig(ctx, awscfg.WithRegion(os.Getenv(sdkaws.AWS_REGION)))
+	if err != nil {
+		logger.Fatal("failed to load aws config for s3", err)
+	}
+	s3Client := awss3.NewFromConfig(s3Cfg)
+
 	logger.Info("customer-api public: bootstrap complete")
-	return jwtClient, ddb
+	return jwtClient, ddb, s3Client
 }
 
 func newExistsRateLimiter() func(http.Handler) http.Handler {
@@ -121,7 +132,7 @@ func newExistsRateLimiter() func(http.Handler) http.Handler {
 
 func main() {
 	ctx := context.Background()
-	jwtClient, ddb := bootstrap(ctx)
+	jwtClient, ddb, s3Raw := bootstrap(ctx)
 
 	awsCfg, err := awscfg.LoadDefaultConfig(ctx, awscfg.WithRegion(os.Getenv(sdkaws.AWS_REGION)))
 	if err != nil {
@@ -134,7 +145,11 @@ func main() {
 	rawDDB := awsddbsvc.NewFromConfig(awsCfg, rawDDBOpts...)
 
 	repo := db.New(ddb, rawDDB, os.Getenv(DYNAMODB_TABLE))
-	svc := api.NewService(repo)
+	svc := api.NewService(repo, api.ServiceExtraConfig{
+		S3Client:       s3Raw,
+		ExportBucket:   os.Getenv(S3_EXPORT_BUCKET),
+		UnsubscribeKey: []byte(os.Getenv(UNSUBSCRIBE_TOKEN_SECRET)),
+	})
 
 	publicReadMW := []func(http.Handler) http.Handler{
 		mw.RequestIDMiddleware,
@@ -173,11 +188,17 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health.HealthHandler)
+	mux.HandleFunc("GET /health/ready", health.NewReadyHandler([]health.Checker{
+		health.DynamoDBChecker("dynamodb", ddb, os.Getenv(DYNAMODB_TABLE)),
+	}))
 
 	mux.Handle("GET /v1/me/profile", mw.Chain(http.HandlerFunc(svc.GetProfileHandler), publicReadMW...))
 	mux.Handle("POST /v1/me/profile", mw.Chain(http.HandlerFunc(svc.CreateUserHandler), publicWriteMW...))
 	mux.Handle("PUT /v1/me/profile", mw.Chain(http.HandlerFunc(svc.UpdateProfileHandler), publicWriteMW...))
 	mux.Handle("DELETE /v1/me/profile", mw.Chain(http.HandlerFunc(svc.DeleteProfileHandler), publicWriteMW...))
+	mux.Handle("POST /v1/me/profile/export", mw.Chain(http.HandlerFunc(svc.ExportProfileHandler), publicWriteMW...))
+
+	mux.Handle("POST /v1/unsubscribe", mw.Chain(http.HandlerFunc(svc.UnsubscribeHandler), publicUnauthMW...))
 
 	mux.Handle("GET /v1/me/addresses", mw.Chain(http.HandlerFunc(svc.GetAddressesHandler), publicReadMW...))
 	mux.Handle("POST /v1/me/addresses", mw.Chain(http.HandlerFunc(svc.AddAddressHandler), publicWriteMW...))
@@ -200,7 +221,7 @@ func main() {
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second,
-		MaxHeaderBytes:    1 << 20,
+		MaxHeaderBytes:    1 << 20, // 1 MB
 	}
 
 	srv.Run(server, os.Getenv(sdkapi.PORT), 30*time.Second)

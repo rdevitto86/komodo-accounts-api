@@ -1,3 +1,0 @@
-# Low-Level Design
-
-TODO

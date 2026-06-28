@@ -23,7 +23,7 @@ services:
       EVAL_RULES_PATH: /app/config/validation_rules.yaml
       AWS_REGION: ${AWS_REGION:-us-east-2}
       AWS_SECRET_PATH: ${SECRET_PATH:-komodo/local/customer-api}
-      DYNAMODB_TABLE: ${DYNAMODB_TABLE:-komodo-users-dev}
+      DYNAMODB_TABLE: ${DYNAMODB_TABLE:-komodo-customers-dev}
     ports:
       - "7051:7051"
       - "7052:7052"
@@ -67,7 +67,7 @@ services:
       VERSION: ${VERSION:-dev}
       AWS_REGION: ${AWS_REGION:-us-east-2}
       AWS_SECRET_PATH: ${SECRET_PATH:-komodo/local/customer-api}
-      DYNAMODB_TABLE: ${DYNAMODB_TABLE:-komodo-users-dev}
+      DYNAMODB_TABLE: ${DYNAMODB_TABLE:-komodo-customers-dev}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:7052/health"]
       interval: 30s

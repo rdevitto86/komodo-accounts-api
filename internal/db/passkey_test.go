@@ -11,7 +11,7 @@ import (
 )
 
 func TestPasskeyPKSK(t *testing.T) {
-	if got, want := passkeyPK("user_123"), "USER#user_123"; got != want {
+	if got, want := passkeyPK("user_123"), "CUSTOMER#user_123"; got != want {
 		t.Errorf("passkeyPK() = %q, want %q", got, want)
 	}
 	if got, want := passkeySK("cred_abc"), "PASSKEY#cred_abc"; got != want {

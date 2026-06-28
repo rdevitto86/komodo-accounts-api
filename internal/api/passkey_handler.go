@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
+	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 
 	"komodo-customer-api/internal/models"
 )
@@ -16,6 +17,7 @@ type passkeyListResponse struct {
 func (s *Service) GetPasskeysHandler(wtr http.ResponseWriter, req *http.Request) {
 	userID := userIDFromPath(req)
 	if userID == "" {
+		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -34,6 +36,7 @@ func (s *Service) GetPasskeysHandler(wtr http.ResponseWriter, req *http.Request)
 func (s *Service) AddPasskeyHandler(wtr http.ResponseWriter, req *http.Request) {
 	userID := userIDFromPath(req)
 	if userID == "" {
+		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -53,6 +56,7 @@ func (s *Service) AddPasskeyHandler(wtr http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "passkey"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusCreated)
 	writeJSON(wtr, input)
@@ -61,6 +65,7 @@ func (s *Service) AddPasskeyHandler(wtr http.ResponseWriter, req *http.Request) 
 func (s *Service) UpdatePasskeyHandler(wtr http.ResponseWriter, req *http.Request) {
 	userID := userIDFromPath(req)
 	if userID == "" {
+		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -83,6 +88,7 @@ func (s *Service) UpdatePasskeyHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "passkey"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, updated)
@@ -91,6 +97,7 @@ func (s *Service) UpdatePasskeyHandler(wtr http.ResponseWriter, req *http.Reques
 func (s *Service) DeletePasskeyHandler(wtr http.ResponseWriter, req *http.Request) {
 	userID := userIDFromPath(req)
 	if userID == "" {
+		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -106,5 +113,6 @@ func (s *Service) DeletePasskeyHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "passkey"))
 	wtr.WriteHeader(http.StatusNoContent)
 }

@@ -1,0 +1,32 @@
+flowchart LR
+    UI[UI / BFF]
+    AUTH[auth-api]
+    PAY[payments-api]
+    ORD[order-api]
+    COMMS[communications-api]
+    LOY[loyalty-api]
+    PROMO[promotions-api]
+    INS[insights-api]
+
+    CUST[komodo-customer-api]
+
+    DDB[(DynamoDB<br/>komodo-customers)]
+    S3[(S3<br/>komodo-customer-exports)]
+    SM[Secrets Manager]
+    EVT[komodo-events-api]
+
+    UI -->|public REST| CUST
+    AUTH -->|private REST| CUST
+    PAY  -->|private REST| CUST
+    ORD  -->|private REST| CUST
+    COMMS -->|private REST| CUST
+
+    CUST --> DDB
+    CUST --> S3
+    CUST --> SM
+
+    DDB -->|stream| EVT
+    EVT -->|domain events| LOY
+    EVT -->|domain events| COMMS
+    EVT -->|domain events| PROMO
+    EVT -->|domain events| INS

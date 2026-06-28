@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbTypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/google/uuid"
+	"github.com/segmentio/ksuid"
 
 	"komodo-customer-api/internal/models"
 
@@ -20,6 +20,7 @@ import (
 
 var ErrNotFound = dynamodb.ErrNotFound
 var ErrAlreadyExists = errors.New("already exists")
+var ErrPasskeyAlreadyExists = errors.New("passkey already exists")
 
 type transactDDBAPI interface {
 	TransactWriteItems(ctx context.Context, params *awsdynamodb.TransactWriteItemsInput, optFns ...func(*awsdynamodb.Options)) (*awsdynamodb.TransactWriteItemsOutput, error)
@@ -35,10 +36,10 @@ func New(client *dynamodb.Client, txClient transactDDBAPI, table string) *Repo {
 	return &Repo{client: client, txClient: txClient, table: table}
 }
 
-type userRecord struct {
+type customerRecord struct {
 	PK            string    `dynamodbav:"PK"`
 	SK            string    `dynamodbav:"SK"`
-	UserID        string    `dynamodbav:"user_id"`
+	CustomerID    string    `dynamodbav:"customer_id"`
 	Username      string    `dynamodbav:"username"`
 	Email         string    `dynamodbav:"email"`
 	Phone         string    `dynamodbav:"phone"`
@@ -55,9 +56,9 @@ type userRecord struct {
 	UpdatedAt     time.Time `dynamodbav:"updated_at"`
 }
 
-func (r *userRecord) toModel() *models.User {
+func (r *customerRecord) toModel() *models.User {
 	return &models.User{
-		UserID:        r.UserID,
+		CustomerID:    r.CustomerID,
 		Username:      r.Username,
 		Email:         r.Email,
 		Phone:         r.Phone,
@@ -73,24 +74,24 @@ func (r *userRecord) toModel() *models.User {
 }
 
 func (r *Repo) GetUser(ctx context.Context, userID string) (*models.User, error) {
-	key, err := r.client.BuildKey("PK", "USER#"+userID, "SK", "PROFILE")
+	key, err := r.client.BuildKey("PK", "CUSTOMER#"+userID, "SK", "PROFILE")
 	if err != nil {
-		return nil, fmt.Errorf("repo.GetUser: build key: %w", err)
+		return nil, fmt.Errorf("failed to build user key: %w", err)
 	}
 
-	var record userRecord
+	var record customerRecord
 	if err := r.client.GetItemAs(ctx, r.table, key, false, nil, &record); err != nil {
-		return nil, fmt.Errorf("repo.GetUser: %w", err)
+		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 	return record.toModel(), nil
 }
 
 type gsiEmailResult struct {
-	UserID string `dynamodbav:"user_id"`
-	PK     string `dynamodbav:"PK"`
+	CustomerID string `dynamodbav:"customer_id"`
+	PK         string `dynamodbav:"PK"`
 }
 
-func (r *Repo) getUserByEmail(ctx context.Context, email string) (*userRecord, error) {
+func (r *Repo) getUserByEmail(ctx context.Context, email string) (*customerRecord, error) {
 	gsiName := "GSI1"
 	var results []gsiEmailResult
 	if err := r.client.QueryAllAs(ctx, dynamodb.QueryInput{
@@ -102,19 +103,19 @@ func (r *Repo) getUserByEmail(ctx context.Context, email string) (*userRecord, e
 			":sk": &ddbTypes.AttributeValueMemberS{Value: "PROFILE"},
 		},
 	}, &results); err != nil {
-		return nil, fmt.Errorf("repo.getUserByEmail: GSI query: %w", err)
+		return nil, fmt.Errorf("failed to query user by email: %w", err)
 	}
 	if len(results) == 0 {
-		return nil, fmt.Errorf("repo.getUserByEmail: %w", ErrNotFound)
+		return nil, fmt.Errorf("user not found: %w", ErrNotFound)
 	}
 
-	key, err := r.client.BuildKey("PK", "USER#"+results[0].UserID, "SK", "PROFILE")
+	key, err := r.client.BuildKey("PK", "CUSTOMER#"+results[0].CustomerID, "SK", "PROFILE")
 	if err != nil {
-		return nil, fmt.Errorf("repo.getUserByEmail: build key: %w", err)
+		return nil, fmt.Errorf("failed to build email lookup key: %w", err)
 	}
-	var record userRecord
+	var record customerRecord
 	if err := r.client.GetItemAs(ctx, r.table, key, false, nil, &record); err != nil {
-		return nil, fmt.Errorf("repo.getUserByEmail: get item: %w", err)
+		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
 	return &record, nil
 }
@@ -122,10 +123,10 @@ func (r *Repo) getUserByEmail(ctx context.Context, email string) (*userRecord, e
 func (r *Repo) GetUserCredentialsByEmail(ctx context.Context, email string) (*models.CredentialsResponse, error) {
 	record, err := r.getUserByEmail(ctx, email)
 	if err != nil {
-		return nil, fmt.Errorf("repo.GetUserCredentialsByEmail: %w", err)
+		return nil, fmt.Errorf("failed to get user credentials: %w", err)
 	}
 	return &models.CredentialsResponse{
-		UserID:        record.UserID,
+		CustomerID:    record.CustomerID,
 		PasswordHash:  record.PasswordHash,
 		EmailVerified: record.EmailVerified,
 		AuthMethods:   record.AuthMethods,
@@ -133,7 +134,7 @@ func (r *Repo) GetUserCredentialsByEmail(ctx context.Context, email string) (*mo
 }
 
 func (r *Repo) UpdateUserCredentials(ctx context.Context, userID string, req *models.UpdateCredentialsRequest) error {
-	key, err := r.client.BuildKey("PK", "USER#"+userID, "SK", "PROFILE")
+	key, err := r.client.BuildKey("PK", "CUSTOMER#"+userID, "SK", "PROFILE")
 	if err != nil {
 		return fmt.Errorf("failed to build credentials key: %w", err)
 	}
@@ -186,7 +187,7 @@ func (r *Repo) GetUserExistsByEmail(ctx context.Context, email string) (*models.
 		if errors.Is(err, ErrNotFound) {
 			return &models.UserExistsResponse{Exists: false, AuthMethods: []string{}}, nil
 		}
-		return nil, fmt.Errorf("repo.GetUserExistsByEmail: %w", err)
+		return nil, fmt.Errorf("failed to check user exists: %w", err)
 	}
 	return &models.UserExistsResponse{
 		Exists:      true,
@@ -195,12 +196,12 @@ func (r *Repo) GetUserExistsByEmail(ctx context.Context, email string) (*models.
 }
 
 func (r *Repo) CreateUser(ctx context.Context, user *models.User) error {
-	record := userRecord{
-		PK:            "USER#" + user.UserID,
+	record := customerRecord{
+		PK:            "CUSTOMER#" + user.CustomerID,
 		SK:            "PROFILE",
 		GSI1PK:        "EMAIL#" + strings.ToLower(user.Email),
 		GSI1SK:        "PROFILE",
-		UserID:        user.UserID,
+		CustomerID:    user.CustomerID,
 		Username:      user.Username,
 		Email:         strings.ToLower(user.Email),
 		Phone:         user.Phone,
@@ -215,20 +216,20 @@ func (r *Repo) CreateUser(ctx context.Context, user *models.User) error {
 		UpdatedAt:     user.UpdatedAt,
 	}
 	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, nil); err != nil {
-		return fmt.Errorf("repo.CreateUser: %w", err)
+		return fmt.Errorf("failed to create user: %w", err)
 	}
 	return nil
 }
 
 func (r *Repo) UpdateUser(ctx context.Context, userID string, update *models.User) (*models.User, error) {
-	key, err := r.client.BuildKey("PK", "USER#"+userID, "SK", "PROFILE")
+	key, err := r.client.BuildKey("PK", "CUSTOMER#"+userID, "SK", "PROFILE")
 	if err != nil {
-		return nil, fmt.Errorf("repo.UpdateUser: build key: %w", err)
+		return nil, fmt.Errorf("failed to build update key: %w", err)
 	}
 
-	var existing userRecord
+	var existing customerRecord
 	if err := r.client.GetItemAs(ctx, r.table, key, false, nil, &existing); err != nil {
-		return nil, fmt.Errorf("repo.UpdateUser: get existing: %w", err)
+		return nil, fmt.Errorf("failed to get existing user: %w", err)
 	}
 
 	if update.Phone != "" {
@@ -249,7 +250,7 @@ func (r *Repo) UpdateUser(ctx context.Context, userID string, update *models.Use
 	existing.UpdatedAt = update.UpdatedAt
 
 	if err := r.client.WriteItemFrom(ctx, r.table, existing, false, nil, nil); err != nil {
-		return nil, fmt.Errorf("repo.UpdateUser: write: %w", err)
+		return nil, fmt.Errorf("failed to write user update: %w", err)
 	}
 	return existing.toModel(), nil
 }
@@ -259,7 +260,7 @@ func (r *Repo) DeleteUser(ctx context.Context, userID string) error {
 		TableName:              r.table,
 		KeyConditionExpression: "PK = :pk",
 		ExpressionValues: map[string]ddbTypes.AttributeValue{
-			":pk": &ddbTypes.AttributeValueMemberS{Value: "USER#" + userID},
+			":pk": &ddbTypes.AttributeValueMemberS{Value: "CUSTOMER#" + userID},
 		},
 	})
 	if err != nil {
@@ -271,7 +272,7 @@ func (r *Repo) DeleteUser(ctx context.Context, userID string) error {
 
 	if len(items) > 100 {
 		logger.Warn("large user delete; processing in chunks",
-			logger.Attr("user_id", userID),
+			logger.Attr("customer_id", userID),
 			logger.Attr("item_count", len(items)),
 		)
 	}
@@ -320,14 +321,13 @@ type addressRecord struct {
 	models.Address
 }
 
-func addrPK(userID string) string { return "USER#" + userID }
+func addrPK(userID string) string { return "CUSTOMER#" + userID }
 
 func addrSK(addressID string) string { return "ADDR#" + addressID }
 
 func (r *Repo) CreateAddress(ctx context.Context, userID string, addr *models.Address) error {
 	if addr.AddressID == "" {
-		raw := strings.ReplaceAll(uuid.NewString(), "-", "")
-		addr.AddressID = "addr_" + raw[:12]
+		addr.AddressID = "addr_" + ksuid.New().String()
 	}
 
 	record := addressRecord{
@@ -336,7 +336,7 @@ func (r *Repo) CreateAddress(ctx context.Context, userID string, addr *models.Ad
 		Address: *addr,
 	}
 	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, nil); err != nil {
-		return fmt.Errorf("repo.CreateAddress: %w", err)
+		return fmt.Errorf("failed to create address: %w", err)
 	}
 	return nil
 }
@@ -344,12 +344,12 @@ func (r *Repo) CreateAddress(ctx context.Context, userID string, addr *models.Ad
 func (r *Repo) GetAddress(ctx context.Context, userID, addressID string) (*models.Address, error) {
 	key, err := r.client.BuildKey("PK", addrPK(userID), "SK", addrSK(addressID))
 	if err != nil {
-		return nil, fmt.Errorf("repo.GetAddress: build key: %w", err)
+		return nil, fmt.Errorf("failed to build address key: %w", err)
 	}
 
 	var record addressRecord
 	if err := r.client.GetItemAs(ctx, r.table, key, false, nil, &record); err != nil {
-		return nil, fmt.Errorf("repo.GetAddress: %w", err)
+		return nil, fmt.Errorf("failed to get address: %w", err)
 	}
 	addr := record.Address
 	return &addr, nil
@@ -378,7 +378,7 @@ func (r *Repo) GetUserAddresses(ctx context.Context, userID string) ([]models.Ad
 
 func (r *Repo) UpdateAddress(ctx context.Context, userID string, addr models.Address) error {
 	if addr.AddressID == "" {
-		return fmt.Errorf("repo.UpdateAddress: address_id is required")
+		return fmt.Errorf("invalid address: address_id is required")
 	}
 
 	record := addressRecord{
@@ -390,9 +390,9 @@ func (r *Repo) UpdateAddress(ctx context.Context, userID string, addr models.Add
 	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, &condition); err != nil {
 		var conditionalCheckErr *ddbTypes.ConditionalCheckFailedException
 		if errors.As(err, &conditionalCheckErr) {
-			return fmt.Errorf("repo.UpdateAddress: %w", ErrNotFound)
+			return fmt.Errorf("failed to update address: %w", ErrNotFound)
 		}
-		return fmt.Errorf("repo.UpdateAddress: %w", err)
+		return fmt.Errorf("failed to update address: %w", err)
 	}
 	return nil
 }
@@ -400,10 +400,10 @@ func (r *Repo) UpdateAddress(ctx context.Context, userID string, addr models.Add
 func (r *Repo) DeleteAddress(ctx context.Context, userID, addressID string) error {
 	key, err := r.client.BuildKey("PK", addrPK(userID), "SK", addrSK(addressID))
 	if err != nil {
-		return fmt.Errorf("repo.DeleteAddress: build key: %w", err)
+		return fmt.Errorf("failed to build delete address key: %w", err)
 	}
 	if err := r.client.DeleteItem(ctx, r.table, key, false, nil, nil); err != nil {
-		return fmt.Errorf("repo.DeleteAddress: %w", err)
+		return fmt.Errorf("failed to delete address: %w", err)
 	}
 	return nil
 }
@@ -411,7 +411,7 @@ func (r *Repo) DeleteAddress(ctx context.Context, userID, addressID string) erro
 func (r *Repo) SetAddressDefault(ctx context.Context, userID, addressID string, isDefault bool) error {
 	key, err := r.client.BuildKey("PK", addrPK(userID), "SK", addrSK(addressID))
 	if err != nil {
-		return fmt.Errorf("repo.SetAddressDefault: build key: %w", err)
+		return fmt.Errorf("failed to build set-default address key: %w", err)
 	}
 	condition := "attribute_exists(SK)"
 	if _, err := r.client.UpdateItem(ctx, r.table, key,
@@ -420,7 +420,7 @@ func (r *Repo) SetAddressDefault(ctx context.Context, userID, addressID string, 
 		map[string]string{"#isDefault": "is_default"},
 		&condition,
 	); err != nil {
-		return fmt.Errorf("repo.SetAddressDefault: %w", err)
+		return fmt.Errorf("failed to set address default: %w", err)
 	}
 	return nil
 }
@@ -431,14 +431,13 @@ type paymentRecord struct {
 	models.PaymentMethod
 }
 
-func payPK(userID string) string { return "USER#" + userID }
+func payPK(userID string) string { return "CUSTOMER#" + userID }
 
 func paySK(paymentID string) string { return "PAY#" + paymentID }
 
 func (r *Repo) UpsertPayment(ctx context.Context, userID string, method *models.PaymentMethod) error {
 	if method.PaymentID == "" {
-		raw := strings.ReplaceAll(uuid.NewString(), "-", "")
-		method.PaymentID = "pay_" + raw[:12]
+		method.PaymentID = "pay_" + ksuid.New().String()
 	}
 
 	record := paymentRecord{
@@ -447,7 +446,7 @@ func (r *Repo) UpsertPayment(ctx context.Context, userID string, method *models.
 		PaymentMethod: *method,
 	}
 	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, nil); err != nil {
-		return fmt.Errorf("repo.UpsertPayment: %w", err)
+		return fmt.Errorf("failed to upsert payment: %w", err)
 	}
 	return nil
 }
@@ -455,12 +454,12 @@ func (r *Repo) UpsertPayment(ctx context.Context, userID string, method *models.
 func (r *Repo) GetPayment(ctx context.Context, userID, paymentID string) (*models.PaymentMethod, error) {
 	key, err := r.client.BuildKey("PK", payPK(userID), "SK", paySK(paymentID))
 	if err != nil {
-		return nil, fmt.Errorf("repo.GetPayment: build key: %w", err)
+		return nil, fmt.Errorf("failed to build payment key: %w", err)
 	}
 
 	var record paymentRecord
 	if err := r.client.GetItemAs(ctx, r.table, key, false, nil, &record); err != nil {
-		return nil, fmt.Errorf("repo.GetPayment: %w", err)
+		return nil, fmt.Errorf("failed to get payment: %w", err)
 	}
 
 	pm := record.PaymentMethod
@@ -494,10 +493,10 @@ func (r *Repo) ListPayments(ctx context.Context, userID string) ([]models.Paymen
 func (r *Repo) DeletePayment(ctx context.Context, userID, paymentID string) error {
 	key, err := r.client.BuildKey("PK", payPK(userID), "SK", paySK(paymentID))
 	if err != nil {
-		return fmt.Errorf("repo.DeletePayment: build key: %w", err)
+		return fmt.Errorf("failed to build delete payment key: %w", err)
 	}
 	if err := r.client.DeleteItem(ctx, r.table, key, false, nil, nil); err != nil {
-		return fmt.Errorf("repo.DeletePayment: %w", err)
+		return fmt.Errorf("failed to delete payment: %w", err)
 	}
 	return nil
 }
@@ -505,7 +504,7 @@ func (r *Repo) DeletePayment(ctx context.Context, userID, paymentID string) erro
 func (r *Repo) SetPaymentDefault(ctx context.Context, userID, paymentID string, isDefault bool) error {
 	key, err := r.client.BuildKey("PK", payPK(userID), "SK", paySK(paymentID))
 	if err != nil {
-		return fmt.Errorf("repo.SetPaymentDefault: build key: %w", err)
+		return fmt.Errorf("failed to build set-default payment key: %w", err)
 	}
 	condition := "attribute_exists(SK)"
 	if _, err := r.client.UpdateItem(ctx, r.table, key,
@@ -514,7 +513,7 @@ func (r *Repo) SetPaymentDefault(ctx context.Context, userID, paymentID string, 
 		map[string]string{"#isDefault": "is_default"},
 		&condition,
 	); err != nil {
-		return fmt.Errorf("repo.SetPaymentDefault: %w", err)
+		return fmt.Errorf("failed to set payment default: %w", err)
 	}
 	return nil
 }
@@ -525,17 +524,17 @@ type prefsRecord struct {
 	models.Preferences
 }
 
-func prefsPK(userID string) string { return "USER#" + userID }
+func prefsPK(userID string) string { return "CUSTOMER#" + userID }
 
 func (r *Repo) GetUserPreferences(ctx context.Context, userID string) (*models.Preferences, error) {
 	key, err := r.client.BuildKey("PK", prefsPK(userID), "SK", "PREFS")
 	if err != nil {
-		return nil, fmt.Errorf("repo.GetUserPreferences: build key: %w", err)
+		return nil, fmt.Errorf("failed to build preferences key: %w", err)
 	}
 
 	var record prefsRecord
 	if err := r.client.GetItemAs(ctx, r.table, key, false, nil, &record); err != nil {
-		return nil, fmt.Errorf("repo.GetUserPreferences: %w", err)
+		return nil, fmt.Errorf("failed to get preferences: %w", err)
 	}
 	prefs := record.Preferences
 	return &prefs, nil
@@ -548,7 +547,7 @@ func (r *Repo) UpdateUserPreferences(ctx context.Context, userID string, prefs *
 		Preferences: *prefs,
 	}
 	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, nil); err != nil {
-		return fmt.Errorf("repo.UpdateUserPreferences: %w", err)
+		return fmt.Errorf("failed to update preferences: %w", err)
 	}
 	return nil
 }
@@ -556,10 +555,10 @@ func (r *Repo) UpdateUserPreferences(ctx context.Context, userID string, prefs *
 func (r *Repo) DeleteUserPreferences(ctx context.Context, userID string) error {
 	key, err := r.client.BuildKey("PK", prefsPK(userID), "SK", "PREFS")
 	if err != nil {
-		return fmt.Errorf("repo.DeleteUserPreferences: build key: %w", err)
+		return fmt.Errorf("failed to build delete preferences key: %w", err)
 	}
 	if err := r.client.DeleteItem(ctx, r.table, key, false, nil, nil); err != nil {
-		return fmt.Errorf("repo.DeleteUserPreferences: %w", err)
+		return fmt.Errorf("failed to delete preferences: %w", err)
 	}
 	return nil
 }
@@ -570,7 +569,7 @@ type passkeyRecord struct {
 	models.PasskeyCredential
 }
 
-func passkeyPK(userID string) string { return "USER#" + userID }
+func passkeyPK(userID string) string { return "CUSTOMER#" + userID }
 
 func passkeySK(credentialID string) string { return "PASSKEY#" + credentialID }
 
@@ -593,7 +592,7 @@ func (r *Repo) CreatePasskey(ctx context.Context, userID string, cred *models.Pa
 	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, &condition); err != nil {
 		var conditionalCheckErr *ddbTypes.ConditionalCheckFailedException
 		if errors.As(err, &conditionalCheckErr) {
-			return fmt.Errorf("failed to create passkey: %w", ErrAlreadyExists)
+			return fmt.Errorf("failed to create passkey: %w", ErrPasskeyAlreadyExists)
 		}
 		return fmt.Errorf("failed to write passkey: %w", err)
 	}
@@ -656,4 +655,108 @@ func (r *Repo) DeletePasskey(ctx context.Context, userID, credentialID string) e
 		return fmt.Errorf("failed to delete passkey: %w", err)
 	}
 	return nil
+}
+
+type settingsRecord struct {
+	PK string `dynamodbav:"PK"`
+	SK string `dynamodbav:"SK"`
+	models.AccountSettings
+}
+
+func settingsPK(customerID string) string { return "CUSTOMER#" + customerID }
+
+func (r *Repo) GetSettings(ctx context.Context, customerID string) (*models.AccountSettings, error) {
+	key, err := r.client.BuildKey("PK", settingsPK(customerID), "SK", "SETTINGS")
+	if err != nil {
+		return nil, fmt.Errorf("failed to build settings key: %w", err)
+	}
+
+	var record settingsRecord
+	if err := r.client.GetItemAs(ctx, r.table, key, false, nil, &record); err != nil {
+		return nil, fmt.Errorf("failed to get settings: %w", err)
+	}
+	s := record.AccountSettings
+	return &s, nil
+}
+
+func (r *Repo) UpdateSettings(ctx context.Context, customerID string, s *models.AccountSettings) error {
+	record := settingsRecord{
+		PK:              settingsPK(customerID),
+		SK:              "SETTINGS",
+		AccountSettings: *s,
+	}
+	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, nil); err != nil {
+		return fmt.Errorf("failed to update settings: %w", err)
+	}
+	return nil
+}
+
+type consentRecord struct {
+	PK string `dynamodbav:"PK"`
+	SK string `dynamodbav:"SK"`
+	models.ConsentLog
+}
+
+func consentPK(customerID string) string { return "CUSTOMER#" + customerID }
+
+func consentSK(channel string, at time.Time) string {
+	return "CONSENT#" + channel + "#" + at.UTC().Format(time.RFC3339Nano)
+}
+
+func (r *Repo) AppendConsentLog(ctx context.Context, customerID string, entry *models.ConsentLog) error {
+	if entry.RecordedAt.IsZero() {
+		entry.RecordedAt = time.Now().UTC()
+	}
+	record := consentRecord{
+		PK:         consentPK(customerID),
+		SK:         consentSK(entry.Channel, entry.RecordedAt),
+		ConsentLog: *entry,
+	}
+	condition := "attribute_not_exists(SK)"
+	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, &condition); err != nil {
+		return fmt.Errorf("failed to append consent log: %w", err)
+	}
+	return nil
+}
+
+func (r *Repo) ListConsentHistory(ctx context.Context, customerID string) ([]models.ConsentLog, error) {
+	var records []consentRecord
+	if _, err := r.client.QueryAs(ctx, dynamodb.QueryInput{
+		TableName:              r.table,
+		KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
+		ExpressionValues: map[string]ddbTypes.AttributeValue{
+			":pk":     &ddbTypes.AttributeValueMemberS{Value: consentPK(customerID)},
+			":prefix": &ddbTypes.AttributeValueMemberS{Value: "CONSENT#"},
+		},
+		Limit: aws.Int32(1000),
+	}, &records); err != nil {
+		return nil, fmt.Errorf("failed to list consent history: %w", err)
+	}
+	logs := make([]models.ConsentLog, len(records))
+	for i, r := range records {
+		logs[i] = r.ConsentLog
+	}
+	return logs, nil
+}
+
+func (r *Repo) GetLatestConsent(ctx context.Context, customerID, channel string) (*models.ConsentLog, error) {
+	var records []consentRecord
+	scanForward := false
+	if _, err := r.client.QueryAs(ctx, dynamodb.QueryInput{
+		TableName:              r.table,
+		KeyConditionExpression: "PK = :pk AND begins_with(SK, :skPrefix)",
+		ExpressionValues: map[string]ddbTypes.AttributeValue{
+			":pk":       &ddbTypes.AttributeValueMemberS{Value: consentPK(customerID)},
+			":skPrefix": &ddbTypes.AttributeValueMemberS{Value: "CONSENT#" + channel + "#"},
+		},
+		ScanIndexForward: &scanForward,
+		Limit:            aws.Int32(1),
+	}, &records); err != nil {
+		return nil, fmt.Errorf("failed to query consent log: %w", err)
+	}
+	if len(records) == 0 {
+		return nil, fmt.Errorf("consent log not found: %w", ErrNotFound)
+	}
+	entry := records[0].ConsentLog
+	return &entry, nil
 }

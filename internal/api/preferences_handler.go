@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
+	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 
 	"komodo-customer-api/internal/models"
 )
@@ -15,6 +16,7 @@ func (s *Service) GetPreferencesHandler(wtr http.ResponseWriter, req *http.Reque
 		userID = userIDFromJWT(req)
 	}
 	if userID == "" {
+		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -33,6 +35,7 @@ func (s *Service) GetPreferencesHandler(wtr http.ResponseWriter, req *http.Reque
 func (s *Service) UpdatePreferencesHandler(wtr http.ResponseWriter, req *http.Request) {
 	userID := userIDFromJWT(req)
 	if userID == "" {
+		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -48,6 +51,7 @@ func (s *Service) UpdatePreferencesHandler(wtr http.ResponseWriter, req *http.Re
 		return
 	}
 
+	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "preferences"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, input)
@@ -56,6 +60,7 @@ func (s *Service) UpdatePreferencesHandler(wtr http.ResponseWriter, req *http.Re
 func (s *Service) DeletePreferencesHandler(wtr http.ResponseWriter, req *http.Request) {
 	userID := userIDFromJWT(req)
 	if userID == "" {
+		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -65,5 +70,6 @@ func (s *Service) DeletePreferencesHandler(wtr http.ResponseWriter, req *http.Re
 		return
 	}
 
+	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "preferences"))
 	wtr.WriteHeader(http.StatusNoContent)
 }

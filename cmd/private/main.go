@@ -30,6 +30,7 @@ const (
 	DYNAMODB_TABLE             = "DYNAMODB_TABLE"
 	CUSTOMER_API_CLIENT_ID     = "CUSTOMER_API_CLIENT_ID"
 	CUSTOMER_API_CLIENT_SECRET = "CUSTOMER_API_CLIENT_SECRET"
+	UNSUBSCRIBE_TOKEN_SECRET   = "UNSUBSCRIBE_TOKEN_SECRET"
 )
 
 var secretKeys = []string{
@@ -39,6 +40,7 @@ var secretKeys = []string{
 	CUSTOMER_API_CLIENT_ID,
 	CUSTOMER_API_CLIENT_SECRET,
 	DYNAMODB_TABLE,
+	UNSUBSCRIBE_TOKEN_SECRET,
 }
 
 func bootstrap(ctx context.Context) (*jwt.Client, *awsddb.Client) {
@@ -106,7 +108,9 @@ func main() {
 	rawDDB := awsddbsvc.NewFromConfig(awsCfg, rawDDBOpts...)
 
 	repo := db.New(ddb, rawDDB, os.Getenv(DYNAMODB_TABLE))
-	svc := api.NewService(repo)
+	svc := api.NewService(repo, api.ServiceExtraConfig{
+		UnsubscribeKey: []byte(os.Getenv(UNSUBSCRIBE_TOKEN_SECRET)),
+	})
 
 	internalMW := []func(http.Handler) http.Handler{
 		mw.RequestIDMiddleware,
@@ -117,6 +121,9 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health.HealthHandler)
+	mux.HandleFunc("GET /health/ready", health.NewReadyHandler([]health.Checker{
+		health.DynamoDBChecker("dynamodb", ddb, os.Getenv(DYNAMODB_TABLE)),
+	}))
 
 	mux.Handle("GET /v1/users/{id}", mw.Chain(http.HandlerFunc(svc.GetProfileHandler), internalMW...))
 	mux.Handle("GET /v1/users/{id}/addresses", mw.Chain(http.HandlerFunc(svc.GetAddressesHandler), internalMW...))
@@ -130,13 +137,19 @@ func main() {
 	mux.Handle("PATCH /v1/users/{id}/passkeys/{credential_id}", mw.Chain(http.HandlerFunc(svc.UpdatePasskeyHandler), internalMW...))
 	mux.Handle("DELETE /v1/users/{id}/passkeys/{credential_id}", mw.Chain(http.HandlerFunc(svc.DeletePasskeyHandler), internalMW...))
 
+	mux.Handle("GET /v1/customers/{id}/settings", mw.Chain(http.HandlerFunc(svc.GetSettingsHandler), internalMW...))
+	mux.Handle("PUT /v1/customers/{id}/settings", mw.Chain(http.HandlerFunc(svc.UpdateSettingsHandler), internalMW...))
+	mux.Handle("PUT /v1/customers/{id}/settings/tags", mw.Chain(http.HandlerFunc(svc.UpdateSettingsTagsHandler), internalMW...))
+
+	mux.Handle("POST /internal/v1/customers/{id}/unsubscribe-token", mw.Chain(http.HandlerFunc(svc.MintUnsubscribeTokenHandler), internalMW...))
+
 	server := &http.Server{
 		Handler:           mux,
 		ReadTimeout:       5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second,
-		MaxHeaderBytes:    1 << 20,
+		MaxHeaderBytes:    1 << 20, // 1 MB
 	}
 
 	srv.Run(server, os.Getenv(sdkapi.PORT_PRIVATE), 30*time.Second)

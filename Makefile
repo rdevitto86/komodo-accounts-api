@@ -34,7 +34,7 @@ else
   LOG_LEVEL := debug
 endif
 
-.PHONY: build run bootstrap stop restart clean test test_unit test_e2e lint
+.PHONY: build run bootstrap stop restart clean test test_unit test_e2e lint diagrams diagrams-clean
 
 help:
 	@echo "Targets:"
@@ -48,6 +48,8 @@ help:
 	@echo "  test_unit         Run unit tests"
 	@echo "  test_e2e          Run end-to-end tests"
 	@echo "  lint              Run golangci-lint"
+	@echo "  diagrams          Render docs/diagrams/*.mmd to PNG (requires mmdc)"
+	@echo "  diagrams-clean    Remove generated PNGs from docs/diagrams/"
 	@echo ""
 	@echo "Supported Environments:"
 	@echo "  local    - Local development (LocalStack)"
@@ -112,3 +114,17 @@ test_e2e:
 
 lint:
 	@golangci-lint run ./...
+
+DIAGRAM_DIR := docs/diagrams
+DIAGRAM_SRC := $(wildcard $(DIAGRAM_DIR)/*.mmd)
+DIAGRAM_OUT := $(DIAGRAM_SRC:.mmd=.png)
+
+diagrams: $(DIAGRAM_OUT)
+
+$(DIAGRAM_DIR)/%.png: $(DIAGRAM_DIR)/%.mmd
+	@command -v mmdc >/dev/null || { echo "mmdc not installed. Run: npm i -g @mermaid-js/mermaid-cli"; exit 1; }
+	@echo "rendering $<"
+	@mmdc -i $< -o $@ -b white -s 2 >/dev/null
+
+diagrams-clean:
+	@rm -f $(DIAGRAM_DIR)/*.png

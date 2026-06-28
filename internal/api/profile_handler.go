@@ -6,6 +6,7 @@ import (
 
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
 	ctxKeys "github.com/rdevitto86/komodo-forge-sdk-go/http/context"
+	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 
 	"komodo-customer-api/internal/models"
 )
@@ -25,6 +26,7 @@ func (s *Service) GetProfileHandler(wtr http.ResponseWriter, req *http.Request) 
 		userID = userIDFromJWT(req)
 	}
 	if userID == "" {
+		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -43,6 +45,7 @@ func (s *Service) GetProfileHandler(wtr http.ResponseWriter, req *http.Request) 
 func (s *Service) CreateUserHandler(wtr http.ResponseWriter, req *http.Request) {
 	userID := userIDFromJWT(req)
 	if userID == "" {
+		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -52,13 +55,14 @@ func (s *Service) CreateUserHandler(wtr http.ResponseWriter, req *http.Request) 
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}
-	input.UserID = userID
+	input.CustomerID = userID
 
 	if err := s.CreateUser(req.Context(), &input); err != nil {
 		sendUserError(wtr, req, err)
 		return
 	}
 
+	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "profile"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusCreated)
 	writeJSON(wtr, input)
@@ -67,6 +71,7 @@ func (s *Service) CreateUserHandler(wtr http.ResponseWriter, req *http.Request) 
 func (s *Service) UpdateProfileHandler(wtr http.ResponseWriter, req *http.Request) {
 	userID := userIDFromJWT(req)
 	if userID == "" {
+		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -83,6 +88,7 @@ func (s *Service) UpdateProfileHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "profile"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, updated)
@@ -91,6 +97,7 @@ func (s *Service) UpdateProfileHandler(wtr http.ResponseWriter, req *http.Reques
 func (s *Service) DeleteProfileHandler(wtr http.ResponseWriter, req *http.Request) {
 	userID := userIDFromJWT(req)
 	if userID == "" {
+		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -100,5 +107,6 @@ func (s *Service) DeleteProfileHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "profile"))
 	wtr.WriteHeader(http.StatusNoContent)
 }

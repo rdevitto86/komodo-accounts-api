@@ -10,7 +10,7 @@ import (
 )
 
 func TestGetPasskeysHandler_Unauthorized(t *testing.T) {
-	svc := NewService(db.New(nil, nil, ""))
+	svc := NewService(db.New(nil, nil, ""), ServiceExtraConfig{})
 	req := httptest.NewRequest(http.MethodGet, "/v1/users//passkeys", nil)
 	rr := httptest.NewRecorder()
 
@@ -22,7 +22,7 @@ func TestGetPasskeysHandler_Unauthorized(t *testing.T) {
 }
 
 func TestAddPasskeyHandler_Unauthorized(t *testing.T) {
-	svc := NewService(db.New(nil, nil, ""))
+	svc := NewService(db.New(nil, nil, ""), ServiceExtraConfig{})
 	req := httptest.NewRequest(http.MethodPost, "/v1/users//passkeys", strings.NewReader(`{}`))
 	rr := httptest.NewRecorder()
 
@@ -34,7 +34,7 @@ func TestAddPasskeyHandler_Unauthorized(t *testing.T) {
 }
 
 func TestAddPasskeyHandler_BadJSON(t *testing.T) {
-	svc := NewService(db.New(nil, nil, ""))
+	svc := NewService(db.New(nil, nil, ""), ServiceExtraConfig{})
 	req := httptest.NewRequest(http.MethodPost, "/v1/users/{id}/passkeys", strings.NewReader("not-json"))
 	req.SetPathValue("id", "user_123")
 	rr := httptest.NewRecorder()
@@ -47,7 +47,7 @@ func TestAddPasskeyHandler_BadJSON(t *testing.T) {
 }
 
 func TestAddPasskeyHandler_MissingCredentialID(t *testing.T) {
-	svc := NewService(db.New(nil, nil, ""))
+	svc := NewService(db.New(nil, nil, ""), ServiceExtraConfig{})
 	req := httptest.NewRequest(http.MethodPost, "/v1/users/{id}/passkeys", strings.NewReader(`{"public_key":"cG9zZXVkb2tleQ=="}`))
 	req.SetPathValue("id", "user_123")
 	rr := httptest.NewRecorder()
@@ -60,7 +60,7 @@ func TestAddPasskeyHandler_MissingCredentialID(t *testing.T) {
 }
 
 func TestUpdatePasskeyHandler_Unauthorized(t *testing.T) {
-	svc := NewService(db.New(nil, nil, ""))
+	svc := NewService(db.New(nil, nil, ""), ServiceExtraConfig{})
 	req := httptest.NewRequest(http.MethodPatch, "/v1/users//passkeys/cred_abc", strings.NewReader(`{}`))
 	rr := httptest.NewRecorder()
 
@@ -72,7 +72,7 @@ func TestUpdatePasskeyHandler_Unauthorized(t *testing.T) {
 }
 
 func TestUpdatePasskeyHandler_MissingCredentialID(t *testing.T) {
-	svc := NewService(db.New(nil, nil, ""))
+	svc := NewService(db.New(nil, nil, ""), ServiceExtraConfig{})
 	req := httptest.NewRequest(http.MethodPatch, "/v1/users/{id}/passkeys/{credential_id}", strings.NewReader(`{}`))
 	req.SetPathValue("id", "user_123")
 	rr := httptest.NewRecorder()
@@ -85,7 +85,7 @@ func TestUpdatePasskeyHandler_MissingCredentialID(t *testing.T) {
 }
 
 func TestDeletePasskeyHandler_Unauthorized(t *testing.T) {
-	svc := NewService(db.New(nil, nil, ""))
+	svc := NewService(db.New(nil, nil, ""), ServiceExtraConfig{})
 	req := httptest.NewRequest(http.MethodDelete, "/v1/users//passkeys/cred_abc", nil)
 	rr := httptest.NewRecorder()
 
@@ -97,7 +97,7 @@ func TestDeletePasskeyHandler_Unauthorized(t *testing.T) {
 }
 
 func TestDeletePasskeyHandler_MissingCredentialID(t *testing.T) {
-	svc := NewService(db.New(nil, nil, ""))
+	svc := NewService(db.New(nil, nil, ""), ServiceExtraConfig{})
 	req := httptest.NewRequest(http.MethodDelete, "/v1/users/{id}/passkeys/{credential_id}", nil)
 	req.SetPathValue("id", "user_123")
 	rr := httptest.NewRecorder()

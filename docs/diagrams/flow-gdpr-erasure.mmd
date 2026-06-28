@@ -1,0 +1,17 @@
+sequenceDiagram
+    participant U as user / client
+    participant P as customer-api (public)
+    participant D as DynamoDB
+    participant S as S3 (exports bucket)
+    participant E as events-api (via stream)
+
+    U->>P: DELETE /v1/me/profile
+    P->>D: Query (PK=CUSTOMER#cust_…)
+    D-->>P: [items 1..N]
+    loop chunks of ≤100
+        P->>D: TransactWriteItems (delete batch)
+    end
+    P->>S: DeleteObjects (exports/<customer_id>/*)
+    D-->>E: stream record (final PROFILE delete)
+    E-->>E: emit customer.deleted
+    P-->>U: 204 No Content

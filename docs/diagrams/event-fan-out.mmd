@@ -1,0 +1,21 @@
+flowchart LR
+    CUST[customer-api]
+    DDB[(DynamoDB<br/>komodo-customers)]
+    CDC[events-api<br/>CDC Lambda]
+    TOPIC[SNS FIFO<br/>komodo-customer-events]
+    QL[SQS FIFO<br/>loyalty]
+    QC[SQS FIFO<br/>comms]
+    QP[SQS FIFO<br/>promotions]
+    QI[SQS FIFO<br/>insights]
+    LOY[loyalty-api]
+    COMMS[communications-api]
+    PROMO[promotions-api]
+    INS[insights-api]
+
+    CUST --> DDB
+    DDB -->|NEW_AND_OLD_IMAGES| CDC
+    CDC --> TOPIC
+    TOPIC --> QL --> LOY
+    TOPIC --> QC --> COMMS
+    TOPIC --> QP --> PROMO
+    TOPIC --> QI --> INS
