@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -113,6 +115,51 @@ func TestCreateUserHandler_NoJWT(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
+func TestCreateUserHandler_AlreadyExists(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo := newTestService(t, ctrl)
+
+	repo.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(fmt.Errorf("failed to create user: %w", db.ErrAlreadyExists))
+
+	body := map[string]any{"email": "taken@example.com", "first_name": "Test", "last_name": "User"}
+	req := withUserID(makeRequest(t, http.MethodPost, "/v1/me/profile", body), "user_abc")
+	rr := httptest.NewRecorder()
+	svc.CreateUserHandler(rr, req)
+	assert.Equal(t, http.StatusConflict, rr.Code)
+}
+
+func TestCreateUserHandler_WritesSettingsRow(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo := newTestService(t, ctrl)
+
+	repo.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+
+	body := map[string]any{"email": "new@example.com", "first_name": "New", "last_name": "User"}
+	req := withUserID(makeRequest(t, http.MethodPost, "/v1/me/profile", body), "user_new")
+	rr := httptest.NewRecorder()
+	svc.CreateUserHandler(rr, req)
+	assert.Equal(t, http.StatusCreated, rr.Code)
+}
+
+func TestCreateUserHandler_UnknownField_Returns400(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, _ := newTestService(t, ctrl)
+
+	body := map[string]any{
+		"email":      "test@example.com",
+		"first_name": "Test",
+		"last_name":  "User",
+		"bogus":      "field",
+	}
+	req := withUserID(makeRequest(t, http.MethodPost, "/v1/me/profile", body), "user_abc")
+	rr := httptest.NewRecorder()
+	svc.CreateUserHandler(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
 // ── Unit Tests: UpdateProfileHandler ─────────────────────────────────────────
 
 func TestUpdateProfileHandler_Success(t *testing.T) {
@@ -163,12 +210,13 @@ func TestDeleteProfileHandler_Success(t *testing.T) {
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().DeleteUser(gomock.Any(), "user_abc").Return(nil).Times(1)
+	repo.EXPECT().SoftDeleteCustomer(gomock.Any(), "user_abc").Return(nil)
+	repo.EXPECT().GetUser(gomock.Any(), "user_abc").Return(nil, db.ErrNotFound)
 
 	req := withUserID(makeRequest(t, http.MethodDelete, "/v1/me/profile", nil), "user_abc")
 	rr := httptest.NewRecorder()
 	svc.DeleteProfileHandler(rr, req)
-	assert.Equal(t, http.StatusNoContent, rr.Code)
+	assert.Equal(t, http.StatusAccepted, rr.Code)
 }
 
 func TestDeleteProfileHandler_NoJWT(t *testing.T) {
@@ -180,4 +228,41 @@ func TestDeleteProfileHandler_NoJWT(t *testing.T) {
 	rr := httptest.NewRecorder()
 	svc.DeleteProfileHandler(rr, req)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestDeleteProfileHandler_InvalidatesCredentialsCache(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo := newTestService(t, ctrl)
+
+	creds := &models.CredentialsResponse{CustomerID: "user_abc", PasswordHash: "hash"}
+	repo.EXPECT().GetUserCredentialsByEmail(gomock.Any(), "user@test.com").Return(creds, nil).Times(2)
+	repo.EXPECT().GetUser(gomock.Any(), "user_abc").Return(&models.User{CustomerID: "user_abc", Email: "user@test.com"}, nil)
+	repo.EXPECT().DeleteUser(gomock.Any(), "user_abc").Return(nil)
+
+	ctx := context.Background()
+
+	got, err := svc.GetCredentials(ctx, "user@test.com")
+	require.NoError(t, err)
+	require.Equal(t, creds.PasswordHash, got.PasswordHash)
+
+	err = svc.DeleteProfile(ctx, "user_abc")
+	require.NoError(t, err)
+
+	got2, err := svc.GetCredentials(ctx, "user@test.com")
+	require.NoError(t, err)
+	require.Equal(t, creds.PasswordHash, got2.PasswordHash)
+}
+
+func TestDeleteProfileHandler_RepoFailureSurfaces5xx(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo := newTestService(t, ctrl)
+
+	repo.EXPECT().SoftDeleteCustomer(gomock.Any(), "user_abc").Return(errors.New("dynamodb unavailable"))
+
+	req := withUserID(makeRequest(t, http.MethodDelete, "/v1/me/profile", nil), "user_abc")
+	rr := httptest.NewRecorder()
+	svc.DeleteProfileHandler(rr, req)
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }

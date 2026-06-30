@@ -1,7 +1,7 @@
 openapi: "3.1.2"
 
 info:
-  title: Komodo User API
+  title: Komodo Customer API
   version: "1.0.0"
   description: |
     User profile, address, payment method, and preference management.
@@ -147,21 +147,52 @@ paths:
 
     delete:
       tags: [Profile]
-      summary: Delete authenticated user's account
+      summary: Account closure / right-to-delete
+      description: Initiates a 30-day soft-delete window; satisfies GDPR right to erasure, CCPA/CPRA right to delete, VCDPA, and CPA. Data is permanently erased after the window expires unless restored.
       operationId: deleteProfile
       x-visibility: public
       responses:
-        "204":
-          description: Account deleted
+        "202":
+          description: Account closure requested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /v1/me/profile/restore:
+    post:
+      tags: [Profile]
+      summary: Restore account from pending deletion
+      description: Cancels a pending account closure if within the 30-day window. Requires customer JWT.
+      operationId: restoreProfile
+      x-visibility: public
+      responses:
+        "200":
+          description: Account restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /v1/me/profile/export:
     post:
       tags: [Profile]
-      summary: Request GDPR profile export
+      summary: Data download / right-to-access
+      description: Exports all personal data and returns a pre-signed URL to a JSON download; satisfies GDPR right of access and CCPA right to know.
       operationId: exportProfile
       x-visibility: public
       responses:
@@ -174,9 +205,34 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /v1/me/profile/avatar:
+    post:
+      tags: [Profile]
+      summary: Get avatar upload URL
+      description: Returns a 15-minute pre-signed S3 PUT URL. Client uploads the image directly to S3, then updates the profile avatar_url field via PUT /v1/me/profile.
+      operationId: getAvatarUploadURL
+      x-visibility: public
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Pre-signed upload URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_url:
+                    type: string
+                  expires_in_seconds:
+                    type: integer
+                    example: 900
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   # ── Consent ──────────────────────────────────────────────────────────────
 
-  /v1/unsubscribe:
+  /v1/communications/unsubscribe:
     post:
       tags: [Consent]
       summary: Verify unsubscribe token and record consent opt-out
@@ -737,7 +793,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
-  /internal/v1/customers/{id}/unsubscribe-token:
+  /internal/v1/customers/{id}/communications/unsubscribe-token:
     parameters:
       - $ref: "#/components/parameters/UserID"
     post:
@@ -834,9 +890,6 @@ components:
           type: string
         first_name:
           type: string
-        middle_initial:
-          type: string
-          maxLength: 1
         last_name:
           type: string
         avatar_url:
@@ -856,9 +909,6 @@ components:
           type: string
         first_name:
           type: string
-        middle_initial:
-          type: string
-          maxLength: 1
         last_name:
           type: string
         avatar_url:
@@ -876,9 +926,6 @@ components:
           type: string
         first_name:
           type: string
-        middle_initial:
-          type: string
-          maxLength: 1
         last_name:
           type: string
         avatar_url:
@@ -946,11 +993,6 @@ components:
           description: Notification channel opt-ins keyed by channel name (e.g. email, sms, push)
           additionalProperties:
             type: boolean
-        marketing:
-          type: object
-          description: Marketing preferences keyed by attribute (e.g. frequency, channel)
-          additionalProperties:
-            type: string
 
     PaymentMethod:
       type: object
@@ -1070,10 +1112,9 @@ components:
           type: array
           items:
             type: string
-        segments:
-          type: object
-          additionalProperties:
-            type: string
+        version:
+          type: integer
+          minimum: 0
 
     UpdateSettingsRequest:
       type: object
@@ -1090,10 +1131,9 @@ components:
           type: array
           items:
             type: string
-        segments:
-          type: object
-          additionalProperties:
-            type: string
+        version:
+          type: integer
+          minimum: 0
 
     UpdateSettingsTagsRequest:
       type: object
@@ -1106,6 +1146,9 @@ components:
           type: array
           items:
             type: string
+        version:
+          type: integer
+          minimum: 0
 
     ConsentLog:
       type: object

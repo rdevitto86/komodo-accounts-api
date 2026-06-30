@@ -1,7 +1,7 @@
 package api
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
 
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
@@ -51,7 +51,7 @@ func (s *Service) CreateUserHandler(wtr http.ResponseWriter, req *http.Request) 
 	}
 
 	var input models.User
-	if err := json.NewDecoder(req.Body).Decode(&input); err != nil {
+	if err := decodeStrict(req, &input); err != nil {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}
@@ -62,7 +62,7 @@ func (s *Service) CreateUserHandler(wtr http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "profile"))
+	logger.Info("user resource created", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "profile"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusCreated)
 	writeJSON(wtr, input)
@@ -77,7 +77,7 @@ func (s *Service) UpdateProfileHandler(wtr http.ResponseWriter, req *http.Reques
 	}
 
 	var input models.User
-	if err := json.NewDecoder(req.Body).Decode(&input); err != nil {
+	if err := decodeStrict(req, &input); err != nil {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}
@@ -102,11 +102,58 @@ func (s *Service) DeleteProfileHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	if err := s.DeleteProfile(req.Context(), userID); err != nil {
+	if err := s.SoftDeleteProfile(req.Context(), userID); err != nil {
 		sendUserError(wtr, req, err)
 		return
 	}
 
 	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "profile"))
-	wtr.WriteHeader(http.StatusNoContent)
+	wtr.Header().Set("Content-Type", "application/json")
+	wtr.WriteHeader(http.StatusAccepted)
+	writeJSON(wtr, map[string]string{"message": "account closure requested; data will be erased in 30 days"})
+}
+
+func (s *Service) RestoreProfileHandler(wtr http.ResponseWriter, req *http.Request) {
+	userID := userIDFromJWT(req)
+	if userID == "" {
+		logger.Warn("unauthorized request", nil)
+		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
+		return
+	}
+
+	if err := s.RestoreProfile(req.Context(), userID); err != nil {
+		if errors.Is(err, ErrAccountNotPendingDeletion) {
+			httpErr.SendError(wtr, req, models.Err.AccountNotPendingDeletion)
+			return
+		}
+		sendUserError(wtr, req, err)
+		return
+	}
+
+	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "profile"))
+	wtr.Header().Set("Content-Type", "application/json")
+	wtr.WriteHeader(http.StatusOK)
+	writeJSON(wtr, map[string]string{"message": "account restored"})
+}
+
+func (s *Service) AvatarUploadHandler(wtr http.ResponseWriter, req *http.Request) {
+	userID := userIDFromJWT(req)
+	if userID == "" {
+		logger.Warn("unauthorized request", nil)
+		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
+		return
+	}
+
+	uploadURL, err := s.GetAvatarUploadURL(req.Context(), userID)
+	if err != nil {
+		sendUserError(wtr, req, err)
+		return
+	}
+
+	wtr.Header().Set("Content-Type", "application/json")
+	wtr.WriteHeader(http.StatusOK)
+	writeJSON(wtr, map[string]any{
+		"upload_url":         uploadURL,
+		"expires_in_seconds": 900,
+	})
 }

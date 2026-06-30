@@ -103,6 +103,24 @@ func TestAddPasskeyHandler_NoAuth(t *testing.T) {
 
 // ── Unit Tests: UpdatePasskeyHandler ─────────────────────────────────────────
 
+func TestUpdatePasskeyHandler_SignCountRegression(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo := newTestService(t, ctrl)
+
+	repo.EXPECT().
+		UpdatePasskey(gomock.Any(), "user_abc", "cred_1", gomock.Any()).
+		Return(nil, db.ErrPasskeySignCountRegression)
+
+	body := map[string]any{"sign_count": 1}
+	req := makeRequest(t, http.MethodPatch, "/v1/users/user_abc/passkeys/cred_1", body)
+	req.SetPathValue("id", "user_abc")
+	req.SetPathValue("credential_id", "cred_1")
+	rr := httptest.NewRecorder()
+	svc.UpdatePasskeyHandler(rr, req)
+	assert.Equal(t, http.StatusConflict, rr.Code)
+}
+
 func TestUpdatePasskeyHandler_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

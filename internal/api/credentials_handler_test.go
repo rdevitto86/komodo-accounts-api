@@ -105,6 +105,52 @@ func TestUpdateCredentialsHandler_EmptyBodyPasswordWrite(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
+func TestGetCredentialsHandler_EmailVerifiedFromSettings_MissingSettings(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo := newTestService(t, ctrl)
+
+	repo.EXPECT().
+		GetUserCredentialsByEmail(gomock.Any(), "user@example.com").
+		Return(&models.CredentialsResponse{
+			CustomerID:    "cust_1",
+			EmailVerified: false,
+			AuthMethods:   []string{},
+		}, nil)
+
+	req := makeRequest(t, http.MethodGet, "/v1/credentials?email=user@example.com", nil)
+	rr := httptest.NewRecorder()
+	svc.GetCredentialsHandler(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var resp models.CredentialsResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	assert.False(t, resp.EmailVerified)
+}
+
+func TestGetCredentialsHandler_EmailVerifiedFromSettings_Verified(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo := newTestService(t, ctrl)
+
+	repo.EXPECT().
+		GetUserCredentialsByEmail(gomock.Any(), "user@example.com").
+		Return(&models.CredentialsResponse{
+			CustomerID:    "cust_1",
+			EmailVerified: true,
+			AuthMethods:   []string{"passkey"},
+		}, nil)
+
+	req := makeRequest(t, http.MethodGet, "/v1/credentials?email=user@example.com", nil)
+	rr := httptest.NewRecorder()
+	svc.GetCredentialsHandler(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var resp models.CredentialsResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	assert.True(t, resp.EmailVerified)
+}
+
 // ── Unit Tests: GetUserExistsHandler ─────────────────────────────────────────
 
 func TestGetUserExistsHandler_Found(t *testing.T) {

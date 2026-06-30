@@ -11,14 +11,16 @@ import {
   STG_CONFIG,
   PROD_CONFIG,
   API_NAME,
+  CONTAINER_NAME,
   PUBLIC_PORT,
   PRIVATE_PORT,
+  VERSION,
   buildStack,
-  buildPublicContainer,
-  buildPrivateContainer,
+  buildCustomerService,
   buildWaf,
   buildCustomerAlarms,
   buildCustomersTable,
+  buildAvatarsBucket,
   createInfra,
 } from './main.js';
 
@@ -79,32 +81,35 @@ describe('configs', () => {
   });
 });
 
-describe('buildPublicContainer', () => {
-  it('creates task def with correct env vars', () => {
+describe('buildCustomerService', () => {
+  it('creates task def with correct container name and env vars', () => {
     const [stack] = makeStack();
     const ctx = makeCtx(stack, DEV_CONFIG);
-    buildPublicContainer(stack, ctx);
+    buildCustomerService(stack, ctx);
     const template = Template.fromStack(stack);
 
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
       ContainerDefinitions: Match.arrayWith([
         Match.objectLike({
-          Name: `${API_NAME}-public-dev`,
+          Name: CONTAINER_NAME,
           Environment: Match.arrayWith([
             Match.objectLike({ Name: 'APP_NAME', Value: API_NAME }),
             Match.objectLike({ Name: 'PORT', Value: `:${PUBLIC_PORT}` }),
+            Match.objectLike({ Name: 'PORT_PRIVATE', Value: `:${PRIVATE_PORT}` }),
+            Match.objectLike({ Name: 'VERSION', Value: VERSION }),
             Match.objectLike({ Name: 'AWS_REGION', Value: 'us-east-2' }),
             Match.objectLike({ Name: 'DYNAMODB_TABLE', Value: 'komodo-customers-dev' }),
+            Match.objectLike({ Name: 'S3_AVATAR_BUCKET', Value: 'komodo-customer-avatars-dev' }),
           ]),
         }),
       ]),
     });
   });
 
-  it('creates ALB with HTTPS and HTTP redirect', () => {
+  it('creates ALB with HTTPS listener and HTTP redirect', () => {
     const [stack] = makeStack();
     const ctx = makeCtx(stack, DEV_CONFIG);
-    buildPublicContainer(stack, ctx);
+    buildCustomerService(stack, ctx);
     const template = Template.fromStack(stack);
 
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 1);
@@ -122,26 +127,26 @@ describe('buildPublicContainer', () => {
     });
   });
 
-  it('creates ALB and task security groups', () => {
+  it('creates ALB and service security groups', () => {
     const [stack] = makeStack();
     const ctx = makeCtx(stack, DEV_CONFIG);
-    buildPublicContainer(stack, ctx);
+    buildCustomerService(stack, ctx);
     const template = Template.fromStack(stack);
 
     template.resourceCountIs('AWS::EC2::SecurityGroup', 2);
   });
 
-  it('grants secrets manager access', () => {
+  it('grants secrets manager read access on task role', () => {
     const [stack] = makeStack();
     const ctx = makeCtx(stack, DEV_CONFIG);
-    buildPublicContainer(stack, ctx);
+    buildCustomerService(stack, ctx);
     const template = Template.fromStack(stack);
 
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: Match.objectLike({
         Statement: Match.arrayWith([
           Match.objectLike({
-            Action: Match.arrayWith(['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret']),
+            Action: 'secretsmanager:GetSecretValue',
             Effect: 'Allow',
           }),
         ]),
@@ -152,51 +157,34 @@ describe('buildPublicContainer', () => {
   it('configures auto-scaling', () => {
     const [stack] = makeStack();
     const ctx = makeCtx(stack, DEV_CONFIG);
-    buildPublicContainer(stack, ctx);
+    buildCustomerService(stack, ctx);
     const template = Template.fromStack(stack);
 
     template.resourceCountIs('AWS::ApplicationAutoScaling::ScalableTarget', 1);
   });
-});
 
-describe('buildPrivateContainer', () => {
-  it('creates task def with correct env vars', () => {
+  it('registers Cloud Map service for private port', () => {
     const [stack] = makeStack();
     const ctx = makeCtx(stack, DEV_CONFIG);
-    buildPrivateContainer(stack, ctx);
+    buildCustomerService(stack, ctx);
     const template = Template.fromStack(stack);
 
-    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
-      ContainerDefinitions: Match.arrayWith([
-        Match.objectLike({
-          Name: `${API_NAME}-private-dev`,
-          Environment: Match.arrayWith([
-            Match.objectLike({ Name: 'APP_NAME', Value: `${API_NAME}-internal` }),
-            Match.objectLike({ Name: 'PORT_PRIVATE', Value: `:${PRIVATE_PORT}` }),
-            Match.objectLike({ Name: 'AWS_REGION', Value: 'us-east-2' }),
-            Match.objectLike({ Name: 'DYNAMODB_TABLE', Value: 'komodo-customers-dev' }),
-          ]),
-        }),
-      ]),
+    template.resourceCountIs('AWS::ServiceDiscovery::PrivateDnsNamespace', 1);
+    template.hasResourceProperties('AWS::ServiceDiscovery::Service', {
+      Name: 'customer-api',
+      DnsConfig: Match.objectLike({
+        DnsRecords: Match.arrayWith([Match.objectLike({ Type: 'A' })]),
+      }),
     });
-  });
-
-  it('creates task security group with VPC CIDR ingress', () => {
-    const [stack] = makeStack();
-    const ctx = makeCtx(stack, DEV_CONFIG);
-    buildPrivateContainer(stack, ctx);
-    const template = Template.fromStack(stack);
-
-    template.resourceCountIs('AWS::EC2::SecurityGroup', 1);
   });
 });
 
 describe('buildWaf', () => {
-  it('creates WebACL with managed rules and rate limits', () => {
+  it('creates WebACL with managed rules, rate limits, and internal block', () => {
     const [stack] = makeStack();
     const ctx = makeCtx(stack, DEV_CONFIG);
-    const pub = buildPublicContainer(stack, ctx);
-    buildWaf(stack, pub.alb);
+    const svc = buildCustomerService(stack, ctx);
+    buildWaf(stack, svc.alb);
     const template = Template.fromStack(stack);
 
     template.hasResourceProperties('AWS::WAFv2::WebACL', {
@@ -206,6 +194,7 @@ describe('buildWaf', () => {
         Match.objectLike({ Name: 'AWSManagedRulesKnownBadInputsRuleSet' }),
         Match.objectLike({ Name: 'ProfileRateLimit' }),
         Match.objectLike({ Name: 'AddressRateLimit' }),
+        Match.objectLike({ Name: 'BlockInternalPaths' }),
       ]),
     });
     template.resourceCountIs('AWS::WAFv2::WebACLAssociation', 1);
@@ -216,12 +205,12 @@ describe('buildCustomerAlarms', () => {
   it('creates metric filters and alarms', () => {
     const [stack] = makeStack();
     const ctx = makeCtx(stack, DEV_CONFIG);
-    const pub = buildPublicContainer(stack, ctx);
-    buildCustomerAlarms(stack, ctx.logGroup, pub.alb);
+    const svc = buildCustomerService(stack, ctx);
+    buildCustomerAlarms(stack, ctx.logGroup, svc.alb);
     const template = Template.fromStack(stack);
 
     template.resourceCountIs('AWS::Logs::MetricFilter', 2);
-    template.resourceCountIs('AWS::CloudWatch::Alarm', 7);
+    template.resourceCountIs('AWS::CloudWatch::Alarm', 3);
   });
 });
 
@@ -229,7 +218,7 @@ describe('buildCustomersTable', () => {
   it('creates DynamoDB table with correct configuration and grants access', () => {
     const [stack] = makeStack();
     const role = new iam.Role(stack, 'TestRole', { assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com') });
-    buildCustomersTable(stack, 'dev', 'komodo-customers-dev', role, role);
+    buildCustomersTable(stack, 'dev', 'komodo-customers-dev', role);
     const template = Template.fromStack(stack);
 
     template.hasResourceProperties('AWS::DynamoDB::Table', {
@@ -256,21 +245,81 @@ describe('buildCustomersTable', () => {
   });
 });
 
+describe('buildAvatarsBucket', () => {
+  it('creates bucket with BlockPublicAccess, SSL enforcement, and S3-managed encryption', () => {
+    const [stack] = makeStack();
+    const role = new iam.Role(stack, 'TestRole', { assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com') });
+    buildAvatarsBucket(stack, 'dev', role);
+    const template = Template.fromStack(stack);
+
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+      BucketEncryption: {
+        ServerSideEncryptionConfiguration: [
+          {
+            ServerSideEncryptionByDefault: {
+              SSEAlgorithm: 'AES256',
+            },
+          },
+        ],
+      },
+    });
+
+    template.hasResourceProperties('AWS::S3::BucketPolicy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: 's3:*',
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } },
+            Effect: 'Deny',
+          }),
+        ]),
+      }),
+    });
+  });
+
+  it('sets removalPolicy to RETAIN on prod', () => {
+    const [stack] = makeStack();
+    const role = new iam.Role(stack, 'TestRole', { assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com') });
+    buildAvatarsBucket(stack, 'prod', role);
+    const template = Template.fromStack(stack);
+
+    template.hasResource('AWS::S3::Bucket', { DeletionPolicy: 'Retain' });
+  });
+
+  it('sets removalPolicy to DESTROY on dev', () => {
+    const [stack] = makeStack();
+    const role = new iam.Role(stack, 'TestRole', { assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com') });
+    buildAvatarsBucket(stack, 'dev', role);
+    const template = Template.fromStack(stack);
+
+    template.hasResource('AWS::S3::Bucket', { DeletionPolicy: 'Delete' });
+  });
+});
+
 describe('buildStack', () => {
-  it('creates dev stack with DynamoDB access', () => {
+  it('creates dev stack with single service and correct outputs', () => {
     const [stack] = makeStack();
     buildStack(stack, DEV_CONFIG);
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::ECS::TaskDefinition', 2);
-    template.resourceCountIs('AWS::ECS::Service', 2);
+    template.resourceCountIs('AWS::ECS::TaskDefinition', 1);
+    template.resourceCountIs('AWS::ECS::Service', 1);
+    template.resourceCountIs('AWS::S3::Bucket', 2);
     template.hasOutput('AlbDnsName', {});
     template.hasOutput('ClusterName', {});
-    template.hasOutput('PublicServiceName', {});
-    template.hasOutput('PrivateServiceName', {});
+    template.hasOutput('ServiceName', {});
+    template.hasOutput('CloudMapServiceArn', {});
+    template.hasOutput('ServiceSecurityGroupId', {});
     template.hasOutput('DomainName', {});
     template.hasOutput('CustomersTableName', {});
     template.hasOutput('CustomersTableStreamArn', {});
+    template.hasOutput('AvatarsBucketName', {});
 
     expect(() => template.hasOutput('WafWebAclArn', {})).toThrow();
   });
@@ -280,15 +329,18 @@ describe('buildStack', () => {
     buildStack(stack, STG_CONFIG);
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::ECS::TaskDefinition', 2);
-    template.resourceCountIs('AWS::ECS::Service', 2);
+    template.resourceCountIs('AWS::ECS::TaskDefinition', 1);
+    template.resourceCountIs('AWS::ECS::Service', 1);
+    template.resourceCountIs('AWS::S3::Bucket', 2);
     template.hasOutput('AlbDnsName', {});
     template.hasOutput('ClusterName', {});
-    template.hasOutput('PublicServiceName', {});
-    template.hasOutput('PrivateServiceName', {});
+    template.hasOutput('ServiceName', {});
+    template.hasOutput('CloudMapServiceArn', {});
+    template.hasOutput('ServiceSecurityGroupId', {});
     template.hasOutput('DomainName', {});
     template.hasOutput('CustomersTableName', {});
     template.hasOutput('CustomersTableStreamArn', {});
+    template.hasOutput('AvatarsBucketName', {});
     template.hasOutput('WafWebAclArn', {});
   });
 

@@ -8,6 +8,7 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as servicediscovery from 'aws-cdk-lib/aws-servicediscovery';
 import { fileURLToPath } from 'node:url';
 import { ENV_DEV, ENV_STAGING, ENV_PROD } from 'komodo-forge-sdk-ts/cdk/constants';
 import type { EnvConfig } from 'komodo-forge-sdk-ts/cdk/config';
@@ -19,8 +20,6 @@ import {
 } from 'komodo-forge-sdk-ts/cdk/config';
 import { createLogGroup, createAlarm } from 'komodo-forge-sdk-ts/cdk/observability';
 import {
-  FargatePublicService,
-  FargatePrivateService,
   WafWebAcl,
   MetricFilterAlarm,
 } from 'komodo-forge-sdk-ts/cdk/constructs';
@@ -29,8 +28,7 @@ export const API_NAME = 'komodo-customer-api';
 export const CONTAINER_NAME = 'customer-api';
 export const PUBLIC_PORT = 7051;
 export const PRIVATE_PORT = 7052;
-export const PUBLIC_VERSION = 'latest';
-export const PRIVATE_VERSION = 'latest';
+export const VERSION = 'latest';
 export const EVAL_RULES_PATH = '/app/config/validation_rules.yaml';
 
 export interface CustomerEnvConfig extends EnvConfig {
@@ -95,87 +93,183 @@ export interface ServiceBuildContext {
   cfg: CustomerEnvConfig;
 }
 
-export const buildPublicContainer = (stack: cdk.Stack, { vpc, cluster, logGroup, cfg }: ServiceBuildContext): FargatePublicService =>
-  new FargatePublicService(stack, 'Public', {
-    vpc,
-    cluster,
-    logGroup,
-    serviceName: `${API_NAME}-public-${cfg.env}`,
-    image: ecs.ContainerImage.fromEcrRepository(
-      ecr.Repository.fromRepositoryName(stack, 'PublicRepo', `${API_NAME}-public`),
-      PUBLIC_VERSION,
-    ),
-    containerPort: PUBLIC_PORT,
+export interface CustomerService {
+  alb: elbv2.ApplicationLoadBalancer;
+  service: ecs.FargateService;
+  taskRole: iam.IRole;
+  securityGroup: ec2.SecurityGroup;
+  cloudMapService: servicediscovery.Service;
+}
+
+export const buildCustomerService = (stack: cdk.Stack, { vpc, cluster, logGroup, cfg }: ServiceBuildContext): CustomerService => {
+  const image = ecs.ContainerImage.fromEcrRepository(
+    ecr.Repository.fromRepositoryName(stack, 'Repo', API_NAME),
+    VERSION,
+  );
+
+  const executionRole = new iam.Role(stack, 'ExecutionRole', {
+    assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+    managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonECSTaskExecutionRolePolicy')],
+  });
+
+  const taskRole = new iam.Role(stack, 'TaskRole', {
+    assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+  });
+
+  taskRole.addToPolicy(new iam.PolicyStatement({
+    actions: ['secretsmanager:GetSecretValue'],
+    resources: [`arn:aws:secretsmanager:*:*:secret:${cfg.secretPath}*`],
+  }));
+
+  const taskDef = new ecs.FargateTaskDefinition(stack, 'TaskDef', {
     cpu: cfg.cpu,
     memoryLimitMiB: cfg.memory,
-    desiredCount: cfg.minCapacity,
-    minCapacity: cfg.minCapacity,
-    maxCapacity: cfg.maxCapacity,
-    certificateArn: cfg.certificateArn,
-    secretPath: cfg.secretPath,
-    streamPrefix: 'public',
-    healthCheckCommand: ['CMD', '/komodo', '-healthcheck'],
+    taskRole,
+    executionRole,
+  });
+
+  taskDef.addContainer('CustomerApi', {
+    containerName: CONTAINER_NAME,
+    image,
+    portMappings: [
+      { containerPort: PUBLIC_PORT, protocol: ecs.Protocol.TCP },
+      { containerPort: PRIVATE_PORT, protocol: ecs.Protocol.TCP },
+    ],
+    logging: ecs.LogDrivers.awsLogs({ logGroup, streamPrefix: 'server' }),
+    healthCheck: {
+      command: ['CMD', '/komodo', '-healthcheck'],
+      interval: cdk.Duration.seconds(30),
+      timeout: cdk.Duration.seconds(5),
+      retries: 3,
+    },
     environment: {
       APP_NAME: API_NAME,
       PORT: `:${PUBLIC_PORT}`,
-      VERSION: PUBLIC_VERSION,
-      EVAL_RULES_PATH: EVAL_RULES_PATH,
-      AWS_REGION: cfg.regions[0].region,
-      DYNAMODB_TABLE: cfg.customersTable,
-      AWS_SECRET_PATH: cfg.secretPath ?? '',
-    },
-  });
-
-export const buildPrivateContainer = (stack: cdk.Stack, { vpc, cluster, logGroup, cfg }: ServiceBuildContext): FargatePrivateService =>
-  new FargatePrivateService(stack, 'Private', {
-    vpc,
-    cluster,
-    logGroup,
-    serviceName: `${API_NAME}-private-${cfg.env}`,
-    image: ecs.ContainerImage.fromEcrRepository(
-      ecr.Repository.fromRepositoryName(stack, 'PrivateRepo', `${API_NAME}-private`),
-      PRIVATE_VERSION,
-    ),
-    containerPort: PRIVATE_PORT,
-    cpu: cfg.cpu,
-    memoryLimitMiB: cfg.memory,
-    desiredCount: cfg.minCapacity,
-    minCapacity: cfg.minCapacity,
-    maxCapacity: cfg.maxCapacity,
-    secretPath: cfg.secretPath,
-    streamPrefix: 'private',
-    healthCheckCommand: ['CMD', '/komodo', '-healthcheck'],
-    environment: {
-      APP_NAME: `${API_NAME}-internal`,
       PORT_PRIVATE: `:${PRIVATE_PORT}`,
-      VERSION: PRIVATE_VERSION,
+      VERSION,
       AWS_REGION: cfg.regions[0].region,
       DYNAMODB_TABLE: cfg.customersTable,
       AWS_SECRET_PATH: cfg.secretPath ?? '',
+      S3_AVATAR_BUCKET: `komodo-customer-avatars-${cfg.env}`,
     },
   });
 
-export const buildWaf = (stack: cdk.Stack, alb: elbv2.ApplicationLoadBalancer): WafWebAcl => new WafWebAcl(stack, 'Waf', {
-  metricPrefix: 'KomodoCustomerWaf',
-  associateAlb: alb,
-  managedRuleGroups: [
-    { name: 'AWSManagedRulesCommonRuleSet' },
-    { name: 'AWSManagedRulesKnownBadInputsRuleSet' },
-  ],
-  globalRateLimit: 2000,
-  rateLimitRules: [
-    {
-      name: 'ProfileRateLimit',
-      limit: 200,
-      pathPrefix: '/v1/profile/',
+  const albSg = new ec2.SecurityGroup(stack, 'AlbSg', { vpc, allowAllOutbound: true });
+  albSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443));
+  albSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80));
+
+  const serviceSg = new ec2.SecurityGroup(stack, 'ServiceSg', { vpc, allowAllOutbound: true });
+  serviceSg.addIngressRule(albSg, ec2.Port.tcp(PUBLIC_PORT));
+  serviceSg.addIngressRule(ec2.Peer.ipv4(vpc.vpcCidrBlock), ec2.Port.tcp(PRIVATE_PORT));
+
+  const service = new ecs.FargateService(stack, 'Service', {
+    cluster,
+    taskDefinition: taskDef,
+    securityGroups: [serviceSg],
+    serviceName: `${API_NAME}-${cfg.env}`,
+    desiredCount: cfg.minCapacity,
+    assignPublicIp: false,
+  });
+
+  const alb = new elbv2.ApplicationLoadBalancer(stack, 'Alb', {
+    vpc,
+    internetFacing: true,
+    securityGroup: albSg,
+    loadBalancerName: `${API_NAME}-${cfg.env}`,
+  });
+
+  alb.addListener('Http', {
+    port: 80,
+    defaultAction: elbv2.ListenerAction.redirect({ protocol: 'HTTPS', port: '443', permanent: true }),
+  });
+
+  const tg = new elbv2.ApplicationTargetGroup(stack, 'Tg', {
+    vpc,
+    port: PUBLIC_PORT,
+    protocol: elbv2.ApplicationProtocol.HTTP,
+    targets: [service],
+    healthCheck: { path: '/health', healthyHttpCodes: '200' },
+  });
+
+  const httpsListener = alb.addListener('Https', {
+    port: 443,
+    certificates: [elbv2.ListenerCertificate.fromArn(cfg.certificateArn)],
+    defaultAction: elbv2.ListenerAction.fixedResponse(404, { contentType: 'application/json', messageBody: '{"error":"not found"}' }),
+  });
+
+  const publicPaths = ['/health', '/health/ready', '/v1/me/*', '/v1/communications/unsubscribe', '/v1/users/exists'];
+  publicPaths.forEach((path, i) => {
+    httpsListener.addTargetGroups(`Rule${i}`, {
+      targetGroups: [tg],
+      priority: i + 1,
+      conditions: [elbv2.ListenerCondition.pathPatterns([path])],
+    });
+  });
+
+  const namespace = new servicediscovery.PrivateDnsNamespace(stack, 'Namespace', {
+    name: 'komodo.internal',
+    vpc,
+    description: 'Internal service discovery for Komodo APIs',
+  });
+
+  const cloudMapService = new servicediscovery.Service(stack, 'CloudMapService', {
+    namespace,
+    name: 'customer-api',
+    dnsRecordType: servicediscovery.DnsRecordType.A,
+    dnsTtl: cdk.Duration.seconds(10),
+  });
+
+  service.associateCloudMapService({ service: cloudMapService, containerName: CONTAINER_NAME, containerPort: PRIVATE_PORT });
+
+  const scaling = service.autoScaleTaskCount({ minCapacity: cfg.minCapacity, maxCapacity: cfg.maxCapacity });
+  scaling.scaleOnCpuUtilization('CpuScaling', {
+    targetUtilizationPercent: 60,
+    scaleInCooldown: cdk.Duration.seconds(60),
+    scaleOutCooldown: cdk.Duration.seconds(30),
+  });
+  scaling.scaleOnMemoryUtilization('MemScaling', {
+    targetUtilizationPercent: 70,
+    scaleInCooldown: cdk.Duration.seconds(60),
+    scaleOutCooldown: cdk.Duration.seconds(30),
+  });
+
+  return { alb, service, taskRole: taskRole as iam.IRole, securityGroup: serviceSg, cloudMapService };
+};
+
+export const buildWaf = (stack: cdk.Stack, alb: elbv2.ApplicationLoadBalancer): WafWebAcl => {
+  const waf = new WafWebAcl(stack, 'Waf', {
+    metricPrefix: 'KomodoCustomerWaf',
+    associateAlb: alb,
+    managedRuleGroups: [
+      { name: 'AWSManagedRulesCommonRuleSet' },
+      { name: 'AWSManagedRulesKnownBadInputsRuleSet' },
+    ],
+    globalRateLimit: 2000,
+    rateLimitRules: [
+      { name: 'ProfileRateLimit', limit: 200, pathPrefix: '/v1/profile/' },
+      { name: 'AddressRateLimit', limit: 200, pathPrefix: '/v1/addresses/' },
+    ],
+  });
+  waf.webAcl.addPropertyOverride('Rules.5', {
+    Name: 'BlockInternalPaths',
+    Priority: 6,
+    Action: { Block: {} },
+    Statement: {
+      ByteMatchStatement: {
+        SearchString: '/internal/',
+        FieldToMatch: { UriPath: {} },
+        TextTransformations: [{ Priority: 0, Type: 'NONE' }],
+        PositionalConstraint: 'STARTS_WITH',
+      },
     },
-    {
-      name: 'AddressRateLimit',
-      limit: 200,
-      pathPrefix: '/v1/addresses/',
+    VisibilityConfig: {
+      SampledRequestsEnabled: true,
+      CloudWatchMetricsEnabled: true,
+      MetricName: 'BlockInternalPaths',
     },
-  ],
-});
+  });
+  return waf;
+};
 
 export const buildCustomerAlarms = (stack: cdk.Stack, logGroup: logs.ILogGroup, alb: elbv2.ApplicationLoadBalancer) => {
   new MetricFilterAlarm(stack, 'User5xx', {
@@ -189,7 +283,7 @@ export const buildCustomerAlarms = (stack: cdk.Stack, logGroup: logs.ILogGroup, 
 
   new MetricFilterAlarm(stack, 'UserNotFound', {
     logGroup,
-    filterPattern: '{ $.status = 404 && $.path = "/v1/users/*" }',
+    filterPattern: '{ $.status = 404 && $.path = "/v1/customers/*" }',
     metricNamespace: 'KomodoCustomer',
     metricName: 'CustomerNotFoundCount',
     alarmName: 'CustomerNotFoundAlarm',
@@ -211,7 +305,7 @@ export const buildCustomerAlarms = (stack: cdk.Stack, logGroup: logs.ILogGroup, 
     .build();
 };
 
-export const buildCustomersTable = (stack: cdk.Stack, env: string, customersTable: string, privateRole: iam.IRole, publicRole: iam.IRole): dynamodb.Table => {
+export const buildCustomersTable = (stack: cdk.Stack, env: string, customersTable: string, taskRole: iam.IRole): dynamodb.Table => {
   const isProd = env !== 'dev';
   const table = new dynamodb.Table(stack, 'CustomersTable', {
     tableName: customersTable,
@@ -231,12 +325,11 @@ export const buildCustomersTable = (stack: cdk.Stack, env: string, customersTabl
     projectionType: dynamodb.ProjectionType.INCLUDE,
     nonKeyAttributes: ['customer_id'],
   });
-  table.grantReadWriteData(privateRole);
-  table.grantReadData(publicRole);
+  table.grantReadWriteData(taskRole);
   return table;
 };
 
-export const buildCustomerExportsBucket = (stack: cdk.Stack, env: string, privateRole: iam.IRole, publicRole: iam.IRole): s3.Bucket => {
+export const buildCustomerExportsBucket = (stack: cdk.Stack, env: string, taskRole: iam.IRole): s3.Bucket => {
   const isProd = env !== 'dev';
   const bucket = new s3.Bucket(stack, 'CustomerExports', {
     bucketName: `komodo-customer-exports-${env}`,
@@ -248,8 +341,23 @@ export const buildCustomerExportsBucket = (stack: cdk.Stack, env: string, privat
     autoDeleteObjects: !isProd,
     lifecycleRules: [{ expiration: cdk.Duration.days(7) }],
   });
-  bucket.grantWrite(privateRole);
-  bucket.grantRead(publicRole);
+  bucket.grantReadWrite(taskRole);
+  return bucket;
+};
+
+export const buildAvatarsBucket = (stack: cdk.Stack, env: string, taskRole: iam.IRole): s3.Bucket => {
+  const isProd = env !== 'dev';
+  const bucket = new s3.Bucket(stack, 'CustomerAvatars', {
+    bucketName: `komodo-customer-avatars-${env}`,
+    blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+    enforceSSL: true,
+    encryption: s3.BucketEncryption.S3_MANAGED,
+    versioned: false,
+    removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+    autoDeleteObjects: !isProd,
+  });
+  bucket.grantPut(taskRole);
+  bucket.grantRead(taskRole);
   return bucket;
 };
 
@@ -263,8 +371,7 @@ export const buildStack = (stack: cdk.Stack, cfg: CustomerEnvConfig): void => {
   const vpc = ec2.Vpc.fromLookup(stack, 'Vpc', { tags: { Name: cfg.vpcTag } });
   const cluster = new ecs.Cluster(stack, 'Cluster', { vpc, clusterName: `${API_NAME}-${cfg.env}` });
   const ctx: ServiceBuildContext = { vpc, cluster, logGroup, cfg };
-  const publicSvc = buildPublicContainer(stack, ctx);
-  const privateSvc = buildPrivateContainer(stack, ctx);
+  const svc = buildCustomerService(stack, ctx);
 
   if (cfg.tags) {
     for (const [key, value] of Object.entries(cfg.tags)) {
@@ -272,21 +379,24 @@ export const buildStack = (stack: cdk.Stack, cfg: CustomerEnvConfig): void => {
     }
   }
 
-  const table = buildCustomersTable(stack, cfg.env, cfg.customersTable, privateSvc.taskDefinition.taskRole, publicSvc.taskDefinition.taskRole);
-  buildCustomerExportsBucket(stack, cfg.env, privateSvc.taskDefinition.taskRole, publicSvc.taskDefinition.taskRole);
+  const table = buildCustomersTable(stack, cfg.env, cfg.customersTable, svc.taskRole);
+  buildCustomerExportsBucket(stack, cfg.env, svc.taskRole);
+  buildAvatarsBucket(stack, cfg.env, svc.taskRole);
 
-  new cdk.CfnOutput(stack, 'AlbDnsName', { value: publicSvc.alb.loadBalancerDnsName });
+  new cdk.CfnOutput(stack, 'AlbDnsName', { value: svc.alb.loadBalancerDnsName });
   new cdk.CfnOutput(stack, 'ClusterName', { value: cluster.clusterName });
-  new cdk.CfnOutput(stack, 'PublicServiceName', { value: publicSvc.service.serviceName });
-  new cdk.CfnOutput(stack, 'PrivateServiceName', { value: privateSvc.service.serviceName });
+  new cdk.CfnOutput(stack, 'ServiceName', { value: svc.service.serviceName });
+  new cdk.CfnOutput(stack, 'CloudMapServiceArn', { value: svc.cloudMapService.serviceArn });
+  new cdk.CfnOutput(stack, 'ServiceSecurityGroupId', { value: svc.securityGroup.securityGroupId });
   new cdk.CfnOutput(stack, 'DomainName', { value: cfg.domainName });
   new cdk.CfnOutput(stack, 'CustomersTableName', { value: cfg.customersTable });
   new cdk.CfnOutput(stack, 'CustomersTableStreamArn', { value: table.tableStreamArn! });
+  new cdk.CfnOutput(stack, 'AvatarsBucketName', { value: `komodo-customer-avatars-${cfg.env}` });
 
   if (cfg.env === 'dev') return;
 
-  const waf = buildWaf(stack, publicSvc.alb);
-  buildCustomerAlarms(stack, logGroup, publicSvc.alb);
+  const waf = buildWaf(stack, svc.alb);
+  buildCustomerAlarms(stack, logGroup, svc.alb);
 
   new cdk.CfnOutput(stack, 'WafWebAclArn', { value: waf.webAcl.attrArn });
 };
@@ -299,14 +409,11 @@ export const createInfra = () => {
     const cfg = env === 'dev' ? DEV_CONFIG : env === 'stg' ? STG_CONFIG : PROD_CONFIG;
     if (!cfg) throw new Error(`unknown environment ${env}, expected dev|stg|prod`);
 
-    const account = cfg.account || app.node.tryGetContext('account') || '';
-
-    for (const rd of cfg.regions) {
-      if (!rd.enabled) continue;
-      const suffix = rd.suffix ? `-${rd.suffix}` : '';
-      const stack = new cdk.Stack(app, `KomodoCustomer-${cfg.env}${suffix}`, { env: { account, region: rd.region } });
-      buildStack(stack, cfg);
-    }
+    const region = app.node.tryGetContext('region') ?? 'us-east-2';
+    const stack = new cdk.Stack(app, `CustomerApi-${region}-${env}`, {
+      env: { account: process.env.CDK_DEFAULT_ACCOUNT, region },
+    });
+    buildStack(stack, cfg);
   } catch (err) {
     console.error('failed to create infrastructure:', err);
     process.exit(1);

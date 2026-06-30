@@ -90,7 +90,7 @@ func TestUpdateAddressHandler_Success(t *testing.T) {
 	svc, repo := newTestService(t, ctrl)
 
 	repo.EXPECT().
-		UpdateAddress(gomock.Any(), "user_abc", gomock.Any()).
+		UpdateAddress(gomock.Any(), "user_abc", "addr_1", gomock.Any()).
 		Return(nil)
 
 	body := map[string]any{"line1": "456 Elm St", "city": "Springfield", "state": "IL", "zip_code": "62702", "country": "US"}
@@ -107,7 +107,7 @@ func TestUpdateAddressHandler_NotFound(t *testing.T) {
 	svc, repo := newTestService(t, ctrl)
 
 	repo.EXPECT().
-		UpdateAddress(gomock.Any(), "user_abc", gomock.Any()).
+		UpdateAddress(gomock.Any(), "user_abc", "addr_missing", gomock.Any()).
 		Return(db.ErrNotFound)
 
 	body := map[string]any{"line1": "456 Elm St", "city": "Springfield", "state": "IL", "zip_code": "62702", "country": "US"}

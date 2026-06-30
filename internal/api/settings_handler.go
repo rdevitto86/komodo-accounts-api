@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -42,10 +41,18 @@ func (s *Service) UpdateSettingsHandler(wtr http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	var input models.AccountSettings
-	if err := json.NewDecoder(req.Body).Decode(&input); err != nil {
+	var input models.UpdateSettingsRequest
+	if err := decodeStrict(req, &input); err != nil {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
+	}
+
+	if input.Status != nil {
+		callerSvc := callerServiceFromScopes(req)
+		if callerSvc != "customer-servicing-api" && callerSvc != "customer-api" {
+			httpErr.SendError(wtr, req, models.Err.ForbiddenNamespace)
+			return
+		}
 	}
 
 	updated, err := s.UpdateSettings(req.Context(), customerID, &input)
@@ -85,7 +92,7 @@ func (s *Service) UpdateSettingsTagsHandler(wtr http.ResponseWriter, req *http.R
 	}
 
 	var input models.UpdateSettingsTagsRequest
-	if err := json.NewDecoder(req.Body).Decode(&input); err != nil {
+	if err := decodeStrict(req, &input); err != nil {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}

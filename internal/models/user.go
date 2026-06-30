@@ -10,11 +10,9 @@ type User struct {
 	Email         string    `json:"email"                    dynamodbav:"email"`
 	Phone         string    `json:"phone,omitempty"          dynamodbav:"phone,omitempty"`
 	FirstName     string    `json:"first_name"               dynamodbav:"first_name"`
-	MiddleInitial string    `json:"middle_initial,omitempty" dynamodbav:"middle_initial,omitempty"`
 	LastName      string    `json:"last_name"                dynamodbav:"last_name"`
 	AvatarURL     string    `json:"avatar_url,omitempty"     dynamodbav:"avatar_url,omitempty"`
 	PasswordHash  string    `json:"-"                        dynamodbav:"password_hash"`
-	EmailVerified bool      `json:"-"                        dynamodbav:"email_verified"`
 	AuthMethods   []string  `json:"-"                        dynamodbav:"auth_methods"`
 	CreatedAt     time.Time `json:"-"                        dynamodbav:"created_at"`
 	UpdatedAt     time.Time `json:"-"                        dynamodbav:"updated_at"`
@@ -76,7 +74,13 @@ type Preferences struct {
 	Language      string            `json:"language"                  dynamodbav:"language"`
 	Timezone      string            `json:"timezone"                  dynamodbav:"timezone"`
 	Communication map[string]bool   `json:"communication"             dynamodbav:"communication"`
-	Marketing     map[string]string `json:"marketing"                 dynamodbav:"marketing"`
+}
+
+var ValidCommunicationChannels = map[string]bool{
+	"email":  true,
+	"sms":    true,
+	"push":   true,
+	"postal": true,
 }
 
 type AccountSettings struct {
@@ -87,8 +91,8 @@ type AccountSettings struct {
 	Status          string            `json:"status"                      dynamodbav:"status"`
 	StatusReason    string            `json:"status_reason,omitempty"     dynamodbav:"status_reason,omitempty"`
 	StatusChangedAt *time.Time        `json:"status_changed_at,omitempty" dynamodbav:"status_changed_at,omitempty"`
-	Tags            []string          `json:"tags,omitempty"              dynamodbav:"tags,omitempty"`
-	Segments        map[string]string `json:"segments,omitempty"          dynamodbav:"segments,omitempty"`
+	Tags            []string          `json:"tags,omitempty"              dynamodbav:"tags,omitempty,stringset"`
+	Version         int               `json:"version"                     dynamodbav:"version"`
 }
 
 type ConsentLog struct {
@@ -102,8 +106,9 @@ type ConsentLog struct {
 }
 
 type UpdateSettingsTagsRequest struct {
-	Add    []string `json:"add"`
-	Remove []string `json:"remove"`
+	Add     []string `json:"add"`
+	Remove  []string `json:"remove"`
+	Version int      `json:"version"`
 }
 
 type PasskeyExport struct {
@@ -143,4 +148,31 @@ type MintUnsubscribeTokenResponse struct {
 
 type UnsubscribeRequest struct {
 	Token string `json:"token"`
+}
+
+type UpdateAddressRequest struct {
+	Alias     *string `json:"alias,omitempty"`
+	Line1     *string `json:"line1,omitempty"`
+	Line2     *string `json:"line2,omitempty"`
+	City      *string `json:"city,omitempty"`
+	State     *string `json:"state,omitempty"`
+	ZipCode   *string `json:"zip_code,omitempty"`
+	Country   *string `json:"country,omitempty"`
+	IsDefault *bool   `json:"is_default,omitempty"`
+}
+
+type UpdatePreferencesRequest struct {
+	Language      *string         `json:"language,omitempty"`
+	Timezone      *string         `json:"timezone,omitempty"`
+	Communication map[string]bool `json:"communication,omitempty"`
+}
+
+type UpdateSettingsRequest struct {
+	EmailVerified   *bool      `json:"email_verified,omitempty"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
+	PhoneVerified   *bool      `json:"phone_verified,omitempty"`
+	PhoneVerifiedAt *time.Time `json:"phone_verified_at,omitempty"`
+	Status          *string    `json:"status,omitempty"`
+	StatusReason    *string    `json:"status_reason,omitempty"`
+	Version         int        `json:"version"`
 }

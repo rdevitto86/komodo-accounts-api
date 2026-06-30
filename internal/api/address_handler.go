@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
@@ -41,7 +40,7 @@ func (s *Service) AddAddressHandler(wtr http.ResponseWriter, req *http.Request) 
 	}
 
 	var input models.Address
-	if err := json.NewDecoder(req.Body).Decode(&input); err != nil {
+	if err := decodeStrict(req, &input); err != nil {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}
@@ -71,8 +70,8 @@ func (s *Service) UpdateAddressHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	var input models.Address
-	if err := json.NewDecoder(req.Body).Decode(&input); err != nil {
+	var input models.UpdateAddressRequest
+	if err := decodeStrict(req, &input); err != nil {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}

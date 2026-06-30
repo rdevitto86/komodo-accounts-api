@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -37,7 +36,7 @@ func (s *Service) UpdateCredentialsHandler(wtr http.ResponseWriter, req *http.Re
 	}
 
 	var input models.UpdateCredentialsRequest
-	if err := json.NewDecoder(req.Body).Decode(&input); err != nil {
+	if err := decodeStrict(req, &input); err != nil {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}

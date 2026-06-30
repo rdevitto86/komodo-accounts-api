@@ -38,11 +38,6 @@ func TestSendUserError(t *testing.T) {
 			wantStatus: http.StatusForbidden,
 		},
 		{
-			name:       "ErrMarketingConsentMismatch -> 400",
-			err:        ErrMarketingConsentMismatch,
-			wantStatus: http.StatusBadRequest,
-		},
-		{
 			name:       "unknown error -> 500",
 			err:        errors.New("something unexpected"),
 			wantStatus: http.StatusInternalServerError,

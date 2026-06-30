@@ -63,6 +63,18 @@ func TestUpdatePreferencesHandler_MarketingConsentGuard(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
+func TestUpdatePreferencesHandler_InvalidChannel_Returns400(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, _ := newTestService(t, ctrl)
+
+	body := map[string]any{"communication": map[string]bool{"unknown_channel": true}}
+	req := withUserID(makeRequest(t, http.MethodPut, "/v1/me/preferences", body), "user_abc")
+	rr := httptest.NewRecorder()
+	svc.UpdatePreferencesHandler(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
 func TestUpdatePreferencesHandler_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

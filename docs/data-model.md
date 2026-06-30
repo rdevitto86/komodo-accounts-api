@@ -8,6 +8,8 @@
 
 ### 1.1 Table config
 
+> **Ownership:** the CDK Table resource itself is the schema source of truth. `deploy/cdk/main.ts` creates the table via `new dynamodb.Table(...)` — **never** `Table.fromTableName(...)`. Any future schema change starts in this document and the CDK in the same PR.
+
 | Property | Value |
 |---|---|
 | Table name | `komodo-customers-<env>` (env var `DYNAMODB_TABLE`) |
@@ -65,7 +67,6 @@ DynamoDB does not support modifying a GSI projection after creation — widening
 | `email` | S | RFC 5322 (lowercased at write) | |
 | `phone` | S | E.164 | Optional |
 | `first_name` | S | string | |
-| `middle_initial` | S | 1 char | Optional |
 | `last_name` | S | string | |
 | `username` | S | string | Set at create; not mutable via update |
 | `avatar_url` | S | URL | Optional |
@@ -84,11 +85,11 @@ DynamoDB does not support modifying a GSI projection after creation — widening
 | `email_verified_at` | S | RFC 3339 | Present only when `email_verified=true` |
 | `phone_verified` | BOOL | | |
 | `phone_verified_at` | S | RFC 3339 | Present only when `phone_verified=true` |
-| `status` | S | enum `active \| suspended \| closed \| pending_deletion` | |
+| `status` | S | enum `active \| suspended \| closed \| pending_deletion` | `pending_deletion` set by `DELETE /v1/me/profile`; hard-erase worker runs at `status_changed_at + 30d` |
 | `status_reason` | S | free text, ≤128 chars | Present when `status != active` |
-| `status_changed_at` | S | RFC 3339 | |
+| `status_changed_at` | S | RFC 3339 | Also drives the soft-delete window timer |
 | `tags` | SS | namespaced (see §5) | ≤20 per customer |
-| `segments` | M | `string → string` | |
+| `version` | N | uint64, starts at 1 | Optimistic concurrency — `UpdateSettings` / `UpdateSettingsTags` use `ConditionExpression #v = :expected` + `SET #v = :v + 1`; 409 on conflict |
 | `created_at` | S | RFC 3339 | |
 | `updated_at` | S | RFC 3339 | |
 
@@ -149,10 +150,11 @@ DynamoDB does not support modifying a GSI projection after creation — widening
 | `SK` | S | `PREFS` | Singleton |
 | `language` | S | BCP 47 (`en-US`) | |
 | `timezone` | S | IANA (`America/New_York`) | |
-| `communication` | M | `string → bool` (channels `email`, `sms`, `push`, `postal`) | Transactional opt-in only (see §5) |
-| `marketing` | M | `string → string` | |
+| `communication` | M | `string → bool` | Keys enum-validated against `{email, sms, push, postal}` on write; unknown key → 400. Transactional opt-in only (see §5). |
 | `created_at` | S | RFC 3339 | |
 | `updated_at` | S | RFC 3339 | |
+
+> **Removed:** `Preferences.marketing` (`M`, `string → string`). All marketing consent flows through `ConsentLog` — `Preferences` holds only transactional channel opt-ins.
 
 ### 2.7 ConsentLog (`SK=CONSENT#<channel>#<recorded_at>`)
 
@@ -183,9 +185,9 @@ Append-only. Latest record per channel is current state.
 
 ---
 
-## 4. S3 — `komodo-customer-exports-<env>`
+## 4. S3 buckets
 
-GDPR profile export blob store.
+### 4.1 `komodo-customer-exports-<env>` — data download (right-to-access) blob store
 
 | Property | Value |
 |---|---|
@@ -198,7 +200,23 @@ GDPR profile export blob store.
 | Lifecycle | Expire objects after 7 days |
 | Removal policy | `RETAIN` in `stg`/`prod`; `DESTROY` in `dev` |
 | Pre-signed URL TTL | 15 minutes |
-| IAM | Private task role: `PutObject`, `DeleteObject`. Public task role: `GetObject`. |
+| IAM | Public task role: `PutObject`, `DeleteObject`, `GetObject` (pre-signs both directions). Hard-erase worker: `DeleteObject` under `exports/<customer_id>/`. |
+
+### 4.2 `komodo-customer-avatars-<env>` — profile avatar store
+
+| Property | Value |
+|---|---|
+| Bucket name | `komodo-customer-avatars-<env>` |
+| Object key | `<customer_id>/<ksuid>.{jpg\|png\|webp}` |
+| Encryption | SSE-S3 |
+| Public access | Blocked (all four `BlockPublicAccess` flags) |
+| TLS | Enforced via bucket policy |
+| Versioning | Off |
+| Lifecycle | None (avatars are durable; pruned only on account hard-erase) |
+| Removal policy | `RETAIN` in `stg`/`prod`; `DESTROY` in `dev` |
+| Pre-signed URL TTL | 15 minutes (PUT and GET) |
+| Upload constraints | ≤2 MB, `Content-Type ∈ {image/jpeg, image/png, image/webp}` enforced via signed headers |
+| IAM | Public task role: `PutObject` + `GetObject` via presign. Hard-erase worker: `DeleteObject` under `<customer_id>/`. |
 
 ---
 
@@ -210,5 +228,8 @@ GDPR profile export blob store.
 - **`Preferences.communication`** — transactional opt-in only (account, order, security). All marketing opt-in lives in `ConsentLog`. The two are never reconciled.
 - **`ConsentLog`** — append-only. No `UpdateItem` or `DeleteItem` outside of full-account erasure.
 - **Tag namespace** — `<owner>.<tag>` where `<owner>` ∈ `loyalty`, `marketing`, `support`, `system`. Constraints: ≤32 chars, charset `[a-z0-9._]`, ≤20 tags per customer. Cross-namespace writes rejected at the handler.
-- **GDPR erasure** — `Query(PK=CUSTOMER#<id>)` + chunked `TransactWriteItems` deletes in batches of ≤100. S3 export blobs deleted in the same handler.
+- **Account closure & right-to-delete** — two-phase. (1) `DELETE /v1/me/profile` flips `Settings.status=pending_deletion` only; no data wiped. (2) Hard-erase worker at `status_changed_at + 30d` runs `Query(PK=CUSTOMER#<id>)` + chunked `TransactWriteItems` (≤100 per batch) + `DeleteObjects` under `exports/<customer_id>/` and `<customer_id>/` (avatars). `POST /v1/me/profile/restore` cancels inside the window.
+- **Optimistic concurrency on AccountSettings** — every write to `SK=SETTINGS` carries a `version` attribute; mutations use `ConditionExpression #v = :expected` and `SET #v = :v + 1`. 409 on conflict so cross-service writers (loyalty, marketing, support) refetch + retry instead of clobbering.
+- **`is_default` atomic flip** — Address + PaymentMethod default toggles are a single `TransactWriteItems` (demote-old + promote-new). Never list-then-loop.
+- **`Preferences.communication` enum** — keys validated against `{email, sms, push, postal}` on write; unknown keys → 400. Same enum as `ConsentLog.channel`.
 - **`UnsubscribeToken`** — stateless HMAC (`base64url(payload || HMAC-SHA256(secret, payload))`, `payload = {customer_id, channel, exp}`, 30-day TTL). Not a DynamoDB entity. Secret in Secrets Manager at `/komodo/<env>/customer-api/unsubscribe-token-secret`.

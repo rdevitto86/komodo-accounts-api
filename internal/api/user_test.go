@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	"komodo-customer-api/internal/db"
 	"komodo-customer-api/internal/models"
 )
 
@@ -24,6 +25,7 @@ func TestDeleteProfile_GDPRDeleteUserCalled(t *testing.T) {
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
+	repo.EXPECT().GetUser(gomock.Any(), "cust_1").Return(nil, db.ErrNotFound)
 	repo.EXPECT().DeleteUser(gomock.Any(), "cust_1").Return(nil).Times(1)
 
 	err := svc.DeleteProfile(context.Background(), "cust_1")
@@ -37,6 +39,8 @@ func TestHMACTokenRoundTrip(t *testing.T) {
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
+	repo.EXPECT().GetUser(gomock.Any(), "cust_1").Return(&models.User{CustomerID: "cust_1"}, nil)
+	repo.EXPECT().GetLatestConsent(gomock.Any(), "cust_1", "email").Return(nil, db.ErrNotFound)
 	repo.EXPECT().
 		AppendConsentLog(gomock.Any(), "cust_1", gomock.Any()).
 		Return(nil)
@@ -52,7 +56,9 @@ func TestHMACTokenRoundTrip(t *testing.T) {
 func TestHMACTokenTampered(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	svc, _ := newTestService(t, ctrl)
+	svc, repo := newTestService(t, ctrl)
+
+	repo.EXPECT().GetUser(gomock.Any(), "cust_1").Return(&models.User{CustomerID: "cust_1"}, nil)
 
 	token, err := svc.MintUnsubscribeToken(context.Background(), "cust_1", "email")
 	require.NoError(t, err)
@@ -119,8 +125,14 @@ func TestUpdateSettingsTags_Valid(t *testing.T) {
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetSettings(gomock.Any(), "cust_1").Return(nil, ErrNotFound)
+	repo.EXPECT().GetSettings(gomock.Any(), "cust_1").Return(nil, db.ErrNotFound)
 	repo.EXPECT().UpdateSettings(gomock.Any(), "cust_1", gomock.Any()).Return(nil)
+	repo.EXPECT().
+		MutateSettingsTags(gomock.Any(), "cust_1", gomock.Any(), gomock.Any()).
+		Return(nil)
+	repo.EXPECT().
+		GetSettings(gomock.Any(), "cust_1").
+		Return(&models.AccountSettings{Status: "active", Tags: []string{"loyalty.vip"}}, nil)
 
 	req := &models.UpdateSettingsTagsRequest{Add: []string{"loyalty.vip"}}
 	result, err := svc.UpdateSettingsTags(context.Background(), "cust_1", "loyalty-api", req)

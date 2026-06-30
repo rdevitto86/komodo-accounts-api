@@ -272,8 +272,3 @@ docker compose up --build
 
 **Internal** (`/users/*` routes): RequestID → Telemetry → Auth → Scope (`svc:` prefix required via `RequireServiceScope`)
 
----
-
-## Lambda Deployment (future)
-
-`cmd/public` and `cmd/internal` are Lambda-ready via `server.Run()` in forge-sdk. When `AWS_LAMBDA_FUNCTION_NAME` is present, `Run()` switches to `lambda.Start(httpadapter.NewV2(...))` automatically. Deploy as two separate Lambda functions with separate IAM roles. IAM replaces the port-based internal/public split used in Docker/Fargate.

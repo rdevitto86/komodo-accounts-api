@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
@@ -40,8 +39,8 @@ func (s *Service) UpdatePreferencesHandler(wtr http.ResponseWriter, req *http.Re
 		return
 	}
 
-	var input models.Preferences
-	if err := json.NewDecoder(req.Body).Decode(&input); err != nil {
+	var input models.UpdatePreferencesRequest
+	if err := decodeStrict(req, &input); err != nil {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}

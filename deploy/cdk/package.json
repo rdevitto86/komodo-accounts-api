@@ -20,6 +20,6 @@
   "dependencies": {
     "aws-cdk-lib": "^2.260.0",
     "constructs": "^10.6.0",
-    "komodo-forge-sdk-ts": "github:rdevitto86/komodo-forge-sdk-ts"
+    "komodo-forge-sdk-ts": "github:rdevitto86/komodo-forge-sdk-ts#v0.4.1"
   }
 }

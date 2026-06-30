@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
@@ -13,7 +12,7 @@ import (
 
 func (s *Service) UnsubscribeHandler(wtr http.ResponseWriter, req *http.Request) {
 	var input models.UnsubscribeRequest
-	if err := json.NewDecoder(req.Body).Decode(&input); err != nil || input.Token == "" {
+	if err := decodeStrict(req, &input); err != nil || input.Token == "" {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}
@@ -38,7 +37,7 @@ func (s *Service) MintUnsubscribeTokenHandler(wtr http.ResponseWriter, req *http
 	}
 
 	var input models.MintUnsubscribeTokenRequest
-	if err := json.NewDecoder(req.Body).Decode(&input); err != nil || input.Channel == "" {
+	if err := decodeStrict(req, &input); err != nil || input.Channel == "" {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}
