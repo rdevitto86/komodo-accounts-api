@@ -13,6 +13,13 @@
 go.work
 go.work.sum
 
+# AWS CDK
+cdk.out/
+cdk.context.json
+.cdk.staging/
+deploy/cdk/lib/
+deploy/cdk/coverage/
+
 # Test coverage
 coverage.out
 coverage.html

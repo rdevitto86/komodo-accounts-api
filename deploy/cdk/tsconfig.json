@@ -23,6 +23,6 @@
     "outDir": "lib",
     "rootDir": "."
   },
-  "include": ["**/*.ts"],
-  "exclude": ["node_modules", "lib", "**/*.test.ts"]
+  "include": ["**/*.ts", "**/*.test.ts"],
+  "exclude": ["node_modules", "lib"]
 }

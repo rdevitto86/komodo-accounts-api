@@ -1,7 +1,6 @@
 {
-  "app": "npx tsx main.ts",
+  "app": "tsx main.ts",
   "context": {
-    "env": "dev",
     "account": ""
   }
 }

@@ -8,18 +8,21 @@
     "build": "tsc",
     "watch": "tsc -w",
     "test": "vitest --coverage",
+    "test:watch": "vitest",
     "cdk": "cdk",
     "fresh": "rm -rf node_modules && bun install"
   },
   "devDependencies": {
-    "@types/node": "^26.0.0",
+    "@types/node": "^26.1.0",
     "@vitest/coverage-v8": "^4.1.0",
+    "aws-cdk": "^2.1129.0",
+    "tsx": "^4.23.0",
     "typescript": "^6.0.0",
     "vitest": "^4.1.0"
   },
   "dependencies": {
-    "aws-cdk-lib": "^2.260.0",
+    "aws-cdk-lib": "^2.261.0",
     "constructs": "^10.6.0",
-    "komodo-forge-sdk-ts": "github:rdevitto86/komodo-forge-sdk-ts#v0.4.1"
+    "komodo-forge-sdk-ts": "github:rdevitto86/komodo-forge-sdk-ts#v0.5.2"
   }
 }

@@ -24,8 +24,8 @@ import (
 	httpReq "github.com/rdevitto86/komodo-forge-sdk-go/api/request"
 	sdkaws "github.com/rdevitto86/komodo-forge-sdk-go/aws"
 	awsddb "github.com/rdevitto86/komodo-forge-sdk-go/aws/dynamodb"
-	awsSM "github.com/rdevitto86/komodo-forge-sdk-go/aws/secretsmanager"
 	sdks3 "github.com/rdevitto86/komodo-forge-sdk-go/aws/s3"
+	awsSM "github.com/rdevitto86/komodo-forge-sdk-go/aws/secretsmanager"
 	sdkhttp "github.com/rdevitto86/komodo-forge-sdk-go/http"
 	sdklog "github.com/rdevitto86/komodo-forge-sdk-go/logging"
 	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
@@ -163,6 +163,8 @@ func main() {
 		AvatarBucket:        os.Getenv(S3_AVATAR_BUCKET),
 	})
 
+	// --- middleware ---
+
 	publicReadMW := []func(http.Handler) http.Handler{
 		mw.RequestIDMiddleware,
 		mw.TelemetryMiddleware,
@@ -198,6 +200,15 @@ func main() {
 		mw.SecurityHeadersMiddleware,
 	}
 
+	internalMW := []func(http.Handler) http.Handler{
+		mw.RequestIDMiddleware,
+		mw.TelemetryMiddleware,
+		mw.AuthMiddleware(jwtClient),
+		mw.ScopeMiddleware,
+	}
+
+	// --- public endpoints ---
+
 	pubMux := http.NewServeMux()
 	pubMux.HandleFunc("GET /health", health.HealthHandler)
 	pubMux.HandleFunc("GET /health/ready", health.NewReadyHandler([]health.Checker{
@@ -229,12 +240,7 @@ func main() {
 
 	pubMux.Handle("GET /v1/users/exists", newExistsRateLimiter()(mw.Chain(http.HandlerFunc(svc.GetUserExistsHandler), publicUnauthMW...)))
 
-	internalMW := []func(http.Handler) http.Handler{
-		mw.RequestIDMiddleware,
-		mw.TelemetryMiddleware,
-		mw.AuthMiddleware(jwtClient),
-		mw.ScopeMiddleware,
-	}
+	// --- private endpoints ---
 
 	privMux := http.NewServeMux()
 	privMux.HandleFunc("GET /health", health.HealthHandler)
@@ -258,7 +264,10 @@ func main() {
 	privMux.Handle("PUT /v1/customers/{id}/settings", mw.Chain(http.HandlerFunc(svc.UpdateSettingsHandler), internalMW...))
 	privMux.Handle("PUT /v1/customers/{id}/settings/tags", mw.Chain(http.HandlerFunc(svc.UpdateSettingsTagsHandler), internalMW...))
 
-	privMux.Handle("POST /internal/v1/customers/{id}/communications/unsubscribe-token", mw.Chain(http.HandlerFunc(svc.MintUnsubscribeTokenHandler), internalMW...))
+	privMux.Handle(
+		"POST /internal/v1/customers/{id}/communications/unsubscribe-token",
+		mw.Chain(http.HandlerFunc(svc.MintUnsubscribeTokenHandler), internalMW...),
+	)
 
 	pubAddr := os.Getenv(sdkapi.PORT)
 	if pubAddr == "" {
@@ -270,22 +279,22 @@ func main() {
 	}
 
 	pubServer := &http.Server{
-		Addr:              pubAddr,
+		Addr:              pubAddr, // port 7051
 		Handler:           pubMux,
 		ReadTimeout:       5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second,
-		MaxHeaderBytes:    1 << 20,
+		MaxHeaderBytes:    1 << 20, // 1MB
 	}
 	privServer := &http.Server{
-		Addr:              privAddr,
+		Addr:              privAddr, // port 7052
 		Handler:           privMux,
 		ReadTimeout:       5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second,
-		MaxHeaderBytes:    1 << 20,
+		MaxHeaderBytes:    1 << 20, // 1MB
 	}
 
 	errCh := make(chan error, 2)
