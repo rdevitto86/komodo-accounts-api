@@ -7,9 +7,10 @@ import (
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
 	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 
-	"komodo-customer-api/internal/models"
+	"komodo-accounts-api/internal/models"
 )
 
+// Route handler that returns credentials for an account (by email)
 func (s *Service) GetCredentialsHandler(wtr http.ResponseWriter, req *http.Request) {
 	email := strings.TrimSpace(req.URL.Query().Get("email"))
 	if email == "" {
@@ -19,7 +20,7 @@ func (s *Service) GetCredentialsHandler(wtr http.ResponseWriter, req *http.Reque
 
 	creds, err := s.GetCredentials(req.Context(), email)
 	if err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 
@@ -28,10 +29,11 @@ func (s *Service) GetCredentialsHandler(wtr http.ResponseWriter, req *http.Reque
 	writeJSON(wtr, creds)
 }
 
+// Route handler that updates credentials for an account
 func (s *Service) UpdateCredentialsHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := req.PathValue("id")
-	if userID == "" {
-		httpErr.SendError(wtr, req, httpErr.Global.BadRequest, httpErr.WithDetail("user id is required"))
+	accountID := req.PathValue("id")
+	if accountID == "" {
+		httpErr.SendError(wtr, req, httpErr.Global.BadRequest, httpErr.WithDetail("account id is required"))
 		return
 	}
 
@@ -41,25 +43,26 @@ func (s *Service) UpdateCredentialsHandler(wtr http.ResponseWriter, req *http.Re
 		return
 	}
 
-	if err := s.UpdateCredentials(req.Context(), userID, &input); err != nil {
-		sendUserError(wtr, req, err)
+	if err := s.UpdateCredentials(req.Context(), accountID, &input); err != nil {
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "credentials"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "credentials"))
 	wtr.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Service) GetUserExistsHandler(wtr http.ResponseWriter, req *http.Request) {
+// Route handler that checks if an account exists (by email)
+func (s *Service) GetAccountExistsHandler(wtr http.ResponseWriter, req *http.Request) {
 	email := strings.TrimSpace(req.URL.Query().Get("email"))
 	if email == "" {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest, httpErr.WithDetail("email query parameter is required"))
 		return
 	}
 
-	result, err := s.CheckUserExists(req.Context(), email)
+	result, err := s.CheckAccountExists(req.Context(), email)
 	if err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 

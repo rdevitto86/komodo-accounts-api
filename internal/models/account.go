@@ -4,18 +4,18 @@ import (
 	"time"
 )
 
-type User struct {
-	CustomerID    string    `json:"customer_id"              dynamodbav:"customer_id"`
-	Username      string    `json:"username,omitempty"       dynamodbav:"username,omitempty"`
-	Email         string    `json:"email"                    dynamodbav:"email"`
-	Phone         string    `json:"phone,omitempty"          dynamodbav:"phone,omitempty"`
-	FirstName     string    `json:"first_name"               dynamodbav:"first_name"`
-	LastName      string    `json:"last_name"                dynamodbav:"last_name"`
-	AvatarURL     string    `json:"avatar_url,omitempty"     dynamodbav:"avatar_url,omitempty"`
-	PasswordHash  string    `json:"-"                        dynamodbav:"password_hash"`
-	AuthMethods   []string  `json:"-"                        dynamodbav:"auth_methods"`
-	CreatedAt     time.Time `json:"-"                        dynamodbav:"created_at"`
-	UpdatedAt     time.Time `json:"-"                        dynamodbav:"updated_at"`
+type Account struct {
+	AccountID    string    `json:"account_id"              dynamodbav:"account_id"`
+	Username     string    `json:"username,omitempty"       dynamodbav:"username,omitempty"`
+	Email        string    `json:"email"                    dynamodbav:"email"`
+	Phone        string    `json:"phone,omitempty"          dynamodbav:"phone,omitempty"`
+	FirstName    string    `json:"first_name"               dynamodbav:"first_name"`
+	LastName     string    `json:"last_name"                dynamodbav:"last_name"`
+	AvatarURL    string    `json:"avatar_url,omitempty"     dynamodbav:"avatar_url,omitempty"`
+	PasswordHash string    `json:"-"                        dynamodbav:"password_hash"`
+	AuthMethods  []string  `json:"-"                        dynamodbav:"auth_methods"`
+	CreatedAt    time.Time `json:"-"                        dynamodbav:"created_at"`
+	UpdatedAt    time.Time `json:"-"                        dynamodbav:"updated_at"`
 }
 
 type Address struct {
@@ -47,13 +47,13 @@ type UpdateCredentialsRequest struct {
 }
 
 type CredentialsResponse struct {
-	CustomerID    string   `json:"customer_id"`
+	AccountID     string   `json:"account_id"`
 	PasswordHash  string   `json:"password_hash"`
 	EmailVerified bool     `json:"email_verified"`
 	AuthMethods   []string `json:"auth_methods"`
 }
 
-type UserExistsResponse struct {
+type AccountExistsResponse struct {
 	Exists      bool     `json:"exists"`
 	AuthMethods []string `json:"auth_methods"`
 }
@@ -71,9 +71,9 @@ type PasskeyCredential struct {
 }
 
 type Preferences struct {
-	Language      string            `json:"language"                  dynamodbav:"language"`
-	Timezone      string            `json:"timezone"                  dynamodbav:"timezone"`
-	Communication map[string]bool   `json:"communication"             dynamodbav:"communication"`
+	Language      string          `json:"language"                  dynamodbav:"language"`
+	Timezone      string          `json:"timezone"                  dynamodbav:"timezone"`
+	Communication map[string]bool `json:"communication"             dynamodbav:"communication"`
 }
 
 var ValidCommunicationChannels = map[string]bool{
@@ -84,15 +84,15 @@ var ValidCommunicationChannels = map[string]bool{
 }
 
 type AccountSettings struct {
-	EmailVerified   bool              `json:"email_verified"              dynamodbav:"email_verified"`
-	EmailVerifiedAt *time.Time        `json:"email_verified_at,omitempty" dynamodbav:"email_verified_at,omitempty"`
-	PhoneVerified   bool              `json:"phone_verified"              dynamodbav:"phone_verified"`
-	PhoneVerifiedAt *time.Time        `json:"phone_verified_at,omitempty" dynamodbav:"phone_verified_at,omitempty"`
-	Status          string            `json:"status"                      dynamodbav:"status"`
-	StatusReason    string            `json:"status_reason,omitempty"     dynamodbav:"status_reason,omitempty"`
-	StatusChangedAt *time.Time        `json:"status_changed_at,omitempty" dynamodbav:"status_changed_at,omitempty"`
-	Tags            []string          `json:"tags,omitempty"              dynamodbav:"tags,omitempty,stringset"`
-	Version         int               `json:"version"                     dynamodbav:"version"`
+	EmailVerified   bool       `json:"email_verified"              dynamodbav:"email_verified"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty" dynamodbav:"email_verified_at,omitempty"`
+	PhoneVerified   bool       `json:"phone_verified"              dynamodbav:"phone_verified"`
+	PhoneVerifiedAt *time.Time `json:"phone_verified_at,omitempty" dynamodbav:"phone_verified_at,omitempty"`
+	Status          string     `json:"status"                      dynamodbav:"status"`
+	StatusReason    string     `json:"status_reason,omitempty"     dynamodbav:"status_reason,omitempty"`
+	StatusChangedAt *time.Time `json:"status_changed_at,omitempty" dynamodbav:"status_changed_at,omitempty"`
+	Tags            []string   `json:"tags,omitempty"              dynamodbav:"tags,omitempty,stringset"`
+	Version         int        `json:"version"                     dynamodbav:"version"`
 }
 
 type ConsentLog struct {
@@ -123,7 +123,7 @@ type PasskeyExport struct {
 }
 
 type ProfileExport struct {
-	Profile        *User            `json:"profile"`
+	Profile        *Account         `json:"profile"`
 	Settings       *AccountSettings `json:"settings"`
 	Preferences    *Preferences     `json:"preferences"`
 	Addresses      []Address        `json:"addresses"`
@@ -148,6 +148,13 @@ type MintUnsubscribeTokenResponse struct {
 
 type UnsubscribeRequest struct {
 	Token string `json:"token"`
+}
+
+type UpdateProfileRequest struct {
+	Phone     *string `json:"phone,omitempty"`
+	FirstName *string `json:"first_name,omitempty"`
+	LastName  *string `json:"last_name,omitempty"`
+	AvatarURL *string `json:"avatar_url,omitempty"`
 }
 
 type UpdateAddressRequest struct {

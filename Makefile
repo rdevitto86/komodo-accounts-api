@@ -34,7 +34,7 @@ else
   LOG_LEVEL := debug
 endif
 
-.PHONY: build run bootstrap stop restart clean test test_unit test_e2e lint diagrams diagrams-clean
+.PHONY: build build_go run bootstrap stop restart clean vet test test_unit test_e2e lint diagrams diagrams-clean
 
 help:
 	@echo "Targets:"
@@ -103,17 +103,25 @@ clean:
 	docker volume prune -f
 	rm -rf bin
 
+GO_PKGS := ./cmd/... ./internal/... ./test/...
+
+build_go:
+	@go build $(GO_PKGS)
+
+vet:
+	@go vet $(GO_PKGS)
+
 test:
-	@go test ./... -race
+	@go test $(GO_PKGS) -race
 
 test_unit:
-	@go test -short ./...
+	@go test -short $(GO_PKGS)
 
 test_e2e:
-	@go test -tags=e2e ./...
+	@go test -tags=e2e $(GO_PKGS)
 
 lint:
-	@golangci-lint run ./...
+	@golangci-lint run $(GO_PKGS)
 
 DIAGRAM_DIR := docs/diagrams
 DIAGRAM_SRC := $(wildcard $(DIAGRAM_DIR)/*.mmd)

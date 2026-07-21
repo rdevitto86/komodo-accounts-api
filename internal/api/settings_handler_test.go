@@ -11,11 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"komodo-customer-api/internal/db"
-	"komodo-customer-api/internal/models"
+	"komodo-accounts-api/internal/db"
+	"komodo-accounts-api/internal/models"
 )
-
-// ── Unit Tests: GetSettingsHandler ───────────────────────────────────────────
 
 func TestGetSettingsHandler_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -26,7 +24,7 @@ func TestGetSettingsHandler_Success(t *testing.T) {
 		GetSettings(gomock.Any(), "cust_1").
 		Return(&models.AccountSettings{Status: "active"}, nil)
 
-	req := makeRequest(t, http.MethodGet, "/v1/customers/cust_1/settings", nil)
+	req := makeRequest(t, http.MethodGet, "/v1/accounts/cust_1/settings", nil)
 	req.SetPathValue("id", "cust_1")
 	rr := httptest.NewRecorder()
 	svc.GetSettingsHandler(rr, req)
@@ -42,7 +40,7 @@ func TestGetSettingsHandler_NotFound(t *testing.T) {
 		GetSettings(gomock.Any(), "cust_missing").
 		Return(nil, db.ErrNotFound)
 
-	req := makeRequest(t, http.MethodGet, "/v1/customers/cust_missing/settings", nil)
+	req := makeRequest(t, http.MethodGet, "/v1/accounts/cust_missing/settings", nil)
 	req.SetPathValue("id", "cust_missing")
 	rr := httptest.NewRecorder()
 	svc.GetSettingsHandler(rr, req)
@@ -54,13 +52,11 @@ func TestGetSettingsHandler_NoAuth(t *testing.T) {
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
 
-	req := makeRequest(t, http.MethodGet, "/v1/customers//settings", nil)
+	req := makeRequest(t, http.MethodGet, "/v1/accounts//settings", nil)
 	rr := httptest.NewRecorder()
 	svc.GetSettingsHandler(rr, req)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
-
-// ── Unit Tests: UpdateSettingsHandler ────────────────────────────────────────
 
 func TestUpdateSettingsHandler_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -75,9 +71,9 @@ func TestUpdateSettingsHandler_Success(t *testing.T) {
 		Return(&models.AccountSettings{Status: "active"}, nil)
 
 	body := map[string]any{"status": "active"}
-	req := makeRequest(t, http.MethodPut, "/v1/customers/cust_1/settings", body)
+	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings", body)
 	req.SetPathValue("id", "cust_1")
-	req = withScopes(req, []string{"svc:customer-api"})
+	req = withScopes(req, []string{"svc:accounts-api"})
 	rr := httptest.NewRecorder()
 	svc.UpdateSettingsHandler(rr, req)
 	assert.Equal(t, http.StatusOK, rr.Code)
@@ -88,7 +84,7 @@ func TestUpdateSettingsHandler_BadJSON(t *testing.T) {
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
 
-	req := makeRequest(t, http.MethodPut, "/v1/customers/cust_1/settings", nil)
+	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings", nil)
 	req.SetPathValue("id", "cust_1")
 	rr := httptest.NewRecorder()
 	svc.UpdateSettingsHandler(rr, req)
@@ -100,7 +96,7 @@ func TestUpdateSettingsHandler_NoAuth(t *testing.T) {
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
 
-	req := makeRequest(t, http.MethodPut, "/v1/customers//settings", map[string]any{"status": "active"})
+	req := makeRequest(t, http.MethodPut, "/v1/accounts//settings", map[string]any{"status": "active"})
 	rr := httptest.NewRecorder()
 	svc.UpdateSettingsHandler(rr, req)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
@@ -128,7 +124,7 @@ func TestUpdateSettingsHandler_PartialUpdate_PreservesFields(t *testing.T) {
 		Return(merged, nil)
 
 	body := map[string]any{"status": "suspended", "status_reason": "abuse"}
-	req := makeRequest(t, http.MethodPut, "/v1/customers/cust_1/settings", body)
+	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings", body)
 	req.SetPathValue("id", "cust_1")
 	req = withScopes(req, []string{"svc:customer-servicing-api"})
 	rr := httptest.NewRecorder()
@@ -157,9 +153,9 @@ func TestUpdateSettingsHandler_StatusChange_StampsStatusChangedAt(t *testing.T) 
 		Return(&models.AccountSettings{Status: "suspended", StatusChangedAt: &changedAt}, nil)
 
 	body := map[string]any{"status": "suspended"}
-	req := makeRequest(t, http.MethodPut, "/v1/customers/cust_1/settings", body)
+	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings", body)
 	req.SetPathValue("id", "cust_1")
-	req = withScopes(req, []string{"svc:customer-api"})
+	req = withScopes(req, []string{"svc:accounts-api"})
 	rr := httptest.NewRecorder()
 	svc.UpdateSettingsHandler(rr, req)
 	assert.Equal(t, http.StatusOK, rr.Code)
@@ -175,15 +171,13 @@ func TestUpdateSettingsHandler_InvalidStatus_Returns400(t *testing.T) {
 	svc, _ := newTestService(t, ctrl)
 
 	body := map[string]any{"status": "banned"}
-	req := makeRequest(t, http.MethodPut, "/v1/customers/cust_1/settings", body)
+	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings", body)
 	req.SetPathValue("id", "cust_1")
-	req = withScopes(req, []string{"svc:customer-api"})
+	req = withScopes(req, []string{"svc:accounts-api"})
 	rr := httptest.NewRecorder()
 	svc.UpdateSettingsHandler(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
-
-// ── Unit Tests: UpdateSettingsTagsHandler ────────────────────────────────────
 
 func TestUpdateSettingsTagsHandler_ValidNamespace(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -201,7 +195,7 @@ func TestUpdateSettingsTagsHandler_ValidNamespace(t *testing.T) {
 		Return(&models.AccountSettings{Status: "active", Tags: []string{"loyalty.vip"}}, nil)
 
 	body := map[string]any{"add": []string{"loyalty.vip"}, "remove": []string{}}
-	req := makeRequest(t, http.MethodPut, "/v1/customers/cust_1/settings/tags", body)
+	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings/tags", body)
 	req.SetPathValue("id", "cust_1")
 	req = withScopes(req, []string{"svc:loyalty-api"})
 	rr := httptest.NewRecorder()
@@ -215,7 +209,7 @@ func TestUpdateSettingsTagsHandler_ForbiddenNamespace(t *testing.T) {
 	svc, _ := newTestService(t, ctrl)
 
 	body := map[string]any{"add": []string{"system.internal"}, "remove": []string{}}
-	req := makeRequest(t, http.MethodPut, "/v1/customers/cust_1/settings/tags", body)
+	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings/tags", body)
 	req.SetPathValue("id", "cust_1")
 	req = withScopes(req, []string{"svc:loyalty-api"})
 	rr := httptest.NewRecorder()
@@ -223,15 +217,13 @@ func TestUpdateSettingsTagsHandler_ForbiddenNamespace(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
 
-// ── Unit Tests: UpdateSettingsHandler — scope ACL ────────────────────────────
-
 func TestUpdateSettingsHandler_StatusMutation_WithoutScope_Returns403(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
 
 	body := map[string]any{"status": "suspended"}
-	req := makeRequest(t, http.MethodPut, "/v1/customers/cust_1/settings", body)
+	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings", body)
 	req.SetPathValue("id", "cust_1")
 	rr := httptest.NewRecorder()
 	svc.UpdateSettingsHandler(rr, req)
@@ -247,7 +239,7 @@ func TestUpdateSettingsHandler_StatusMutation_WithServiceScope_Returns200(t *tes
 	repo.EXPECT().GetSettings(gomock.Any(), "cust_1").Return(&models.AccountSettings{Status: "closed"}, nil)
 
 	body := map[string]any{"status": "closed"}
-	req := makeRequest(t, http.MethodPut, "/v1/customers/cust_1/settings", body)
+	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings", body)
 	req.SetPathValue("id", "cust_1")
 	req = withScopes(req, []string{"svc:customer-servicing-api"})
 	rr := httptest.NewRecorder()
@@ -265,7 +257,7 @@ func TestUpdateSettingsHandler_VerifiedFlagOnly_WithoutScope_Returns200(t *testi
 	repo.EXPECT().GetSettings(gomock.Any(), "cust_1").Return(&models.AccountSettings{EmailVerified: true}, nil)
 
 	body := map[string]any{"email_verified": emailVerified}
-	req := makeRequest(t, http.MethodPut, "/v1/customers/cust_1/settings", body)
+	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings", body)
 	req.SetPathValue("id", "cust_1")
 	rr := httptest.NewRecorder()
 	svc.UpdateSettingsHandler(rr, req)

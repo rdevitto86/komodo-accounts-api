@@ -26,8 +26,8 @@ import {
 import { globalConstants } from 'komodo-forge-sdk-ts';
 import { awsConstants } from 'komodo-forge-sdk-ts/aws';
 
-export const API_NAME = process.env.APP_NAME || 'komodo-customer-api';
-export const CONTAINER_NAME = process.env.CONTAINER_NAME || 'customer-api';
+export const API_NAME = process.env.APP_NAME || 'komodo-accounts-api';
+export const CONTAINER_NAME = process.env.CONTAINER_NAME || 'accounts-api';
 export const PUBLIC_PORT = parseInt(process.env.PUBLIC_PORT || '7051', 10);
 export const PRIVATE_PORT = parseInt(process.env.PRIVATE_PORT || '7052', 10);
 export const VERSION = process.env.VERSION || globalConstants.DEFAULT_APP_VERSION;
@@ -41,19 +41,19 @@ const {
   DYNAMODB_TABLE_SUFFIX_PROD,
 } = awsConstants.dynamodbConstants;
 
-export interface CustomerEnvConfig extends EnvConfig {
-  customersTable: string;
+export interface AccountEnvConfig extends EnvConfig {
+  accountsTable: string;
 }
 
-export const STG_CONFIG: CustomerEnvConfig = {
+export const STG_CONFIG: AccountEnvConfig = {
   ...defaultStgConfig(),
   name: API_NAME,
-  customersTable: `${DYNAMODB_TABLE_PREFIX}customers${DYNAMODB_TABLE_SUFFIX_STG}`,
+  accountsTable: `${DYNAMODB_TABLE_PREFIX}accounts${DYNAMODB_TABLE_SUFFIX_STG}`,
   certificateArn: `PLACEHOLDER-acm-cert-arn-${awsConstants.REGION_EAST2}`,
   cloudFrontCertificateArn: `PLACEHOLDER-acm-cert-arn-${awsConstants.REGION_EAST1}`,
   secretPath: `${globalConstants.KOMODO_NAMESPACE}/${globalConstants.ENV_STAGING}/${CONTAINER_NAME}`,
   vpcTag: `${globalConstants.KOMODO_NAMESPACE}-${globalConstants.ENV_STAGING}`,
-  domainName: `customer-${globalConstants.ENV_STAGING}.${globalConstants.KOMODO_NAMESPACE}.com`,
+  domainName: `accounts-${globalConstants.ENV_STAGING}.${globalConstants.KOMODO_NAMESPACE}.com`,
   tags: {
     ...defaultTags(),
     project: API_NAME,
@@ -62,15 +62,15 @@ export const STG_CONFIG: CustomerEnvConfig = {
   },
 };
 
-export const PROD_CONFIG: CustomerEnvConfig = {
+export const PROD_CONFIG: AccountEnvConfig = {
   ...defaultProdConfig(),
   name: API_NAME,
-  customersTable: `${DYNAMODB_TABLE_PREFIX}customers${DYNAMODB_TABLE_SUFFIX_PROD}`,
+  accountsTable: `${DYNAMODB_TABLE_PREFIX}accounts${DYNAMODB_TABLE_SUFFIX_PROD}`,
   certificateArn: `PLACEHOLDER-acm-cert-arn-${awsConstants.REGION_EAST2}`,
   cloudFrontCertificateArn: `PLACEHOLDER-acm-cert-arn-${awsConstants.REGION_EAST1}`,
   secretPath: `${globalConstants.KOMODO_NAMESPACE}/${globalConstants.ENV_PROD}/${CONTAINER_NAME}`,
   vpcTag: `${globalConstants.KOMODO_NAMESPACE}-${globalConstants.ENV_PROD}`,
-  domainName: `customer.${globalConstants.KOMODO_NAMESPACE}.com`,
+  domainName: `accounts.${globalConstants.KOMODO_NAMESPACE}.com`,
   tags: {
     ...defaultTags(),
     project: API_NAME,
@@ -83,10 +83,10 @@ export interface ServiceBuildContext {
   vpc: ec2.IVpc;
   cluster: ecs.ICluster;
   logGroup: logs.ILogGroup;
-  cfg: CustomerEnvConfig;
+  cfg: AccountEnvConfig;
 }
 
-export interface CustomerService {
+export interface AccountService {
   alb: elbv2.ApplicationLoadBalancer;
   service: ecs.FargateService;
   taskDefinition: ecs.FargateTaskDefinition;
@@ -95,7 +95,7 @@ export interface CustomerService {
   cloudMapService: servicediscovery.Service;
 }
 
-export const buildCustomerService = (stack: cdk.Stack, { vpc, cluster, logGroup, cfg }: ServiceBuildContext): CustomerService => {
+export const buildAccountService = (stack: cdk.Stack, { vpc, cluster, logGroup, cfg }: ServiceBuildContext): AccountService => {
   const serviceName = `${API_NAME}-${cfg.env}`;
 
   const fargate = new FargateService(stack, 'Service', {
@@ -124,10 +124,11 @@ export const buildCustomerService = (stack: cdk.Stack, { vpc, cluster, logGroup,
       PORT: `:${PUBLIC_PORT}`,
       PORT_PRIVATE: `:${PRIVATE_PORT}`,
       VERSION,
+      EVAL_RULES_PATH,
       AWS_REGION: cfg.regions[0].region,
-      DYNAMODB_TABLE: cfg.customersTable,
+      DYNAMODB_TABLE: cfg.accountsTable,
       AWS_SECRET_PATH: cfg.secretPath ?? '',
-      S3_AVATAR_BUCKET: `komodo-customer-avatars-${cfg.env}`,
+      S3_AVATAR_BUCKET: `komodo-accounts-avatars-${cfg.env}`,
     },
   });
 
@@ -150,7 +151,7 @@ export const buildCustomerService = (stack: cdk.Stack, { vpc, cluster, logGroup,
     healthCheck: { path: HEALTH_CHECK_PATH, healthyHttpCodes: '200' },
   });
 
-  const publicPaths = ['/health', '/health/ready', '/v1/me/*', '/v1/communications/unsubscribe', '/v1/users/exists'];
+  const publicPaths = ['/health', '/health/ready', '/v1/me/*', '/v1/communications/unsubscribe', '/v1/accounts/exists'];
   for (const [i, path] of publicPaths.entries()) {
     httpsListener.addTargetGroups(`Rule${i}`, {
       targetGroups: [tg],
@@ -167,7 +168,7 @@ export const buildCustomerService = (stack: cdk.Stack, { vpc, cluster, logGroup,
 
   const cloudMapService = new servicediscovery.Service(stack, 'CloudMapService', {
     namespace,
-    name: 'customer-api',
+    name: 'accounts-api',
     dnsRecordType: servicediscovery.DnsRecordType.A,
     dnsTtl: cdk.Duration.seconds(10),
   });
@@ -187,7 +188,7 @@ export const buildCustomerService = (stack: cdk.Stack, { vpc, cluster, logGroup,
 
 export const buildWaf = (stack: cdk.Stack, alb: elbv2.ApplicationLoadBalancer): WafWebAcl => {
   const waf = new WafWebAcl(stack, 'Waf', {
-    metricPrefix: 'KomodoCustomerWaf',
+    metricPrefix: 'KomodoAccountsWaf',
     associateAlb: alb,
     managedRuleGroups: [
       { name: awsConstants.WAF_MANAGED_RULE_COMMON },
@@ -199,6 +200,7 @@ export const buildWaf = (stack: cdk.Stack, alb: elbv2.ApplicationLoadBalancer): 
       { name: 'AddressRateLimit', limit: 200, pathPrefix: '/v1/addresses/' },
     ],
   });
+
   waf.webAcl.addPropertyOverride('Rules.5', {
     Name: 'BlockInternalPaths',
     Priority: 6,
@@ -220,22 +222,22 @@ export const buildWaf = (stack: cdk.Stack, alb: elbv2.ApplicationLoadBalancer): 
   return waf;
 };
 
-export const buildCustomerAlarms = (stack: cdk.Stack, logGroup: logs.ILogGroup, alb: elbv2.ApplicationLoadBalancer) => {
-  new MetricFilterAlarm(stack, 'User5xx', {
+export const buildAccountAlarms = (stack: cdk.Stack, logGroup: logs.ILogGroup, alb: elbv2.ApplicationLoadBalancer) => {
+  new MetricFilterAlarm(stack, 'Account5xx', {
     logGroup,
     filterPattern: '{ $.status >= 500 }',
-    metricNamespace: 'KomodoCustomer',
-    metricName: 'Customer5xxCount',
-    alarmName: 'Customer5xxAlarm',
+    metricNamespace: 'KomodoAccounts',
+    metricName: 'Account5xxCount',
+    alarmName: 'Account5xxAlarm',
     threshold: 10,
   });
 
-  new MetricFilterAlarm(stack, 'UserNotFound', {
+  new MetricFilterAlarm(stack, 'AccountNotFound', {
     logGroup,
-    filterPattern: '{ $.status = 404 && $.path = "/v1/customers/*" }',
-    metricNamespace: 'KomodoCustomer',
-    metricName: 'CustomerNotFoundCount',
-    alarmName: 'CustomerNotFoundAlarm',
+    filterPattern: '{ $.status = 404 && $.path = "/v1/accounts/*" }',
+    metricNamespace: 'KomodoAccounts',
+    metricName: 'AccountNotFoundCount',
+    alarmName: 'AccountNotFoundAlarm',
     threshold: 100,
   });
 
@@ -255,10 +257,10 @@ export const buildCustomerAlarms = (stack: cdk.Stack, logGroup: logs.ILogGroup, 
   });
 };
 
-export const buildCustomersTable = (stack: cdk.Stack, env: string, customersTable: string, taskRole: iam.IRole): dynamodb.Table => {
+export const buildAccountsTable = (stack: cdk.Stack, env: string, accountsTable: string, taskRole: iam.IRole): dynamodb.Table => {
   const isProd = env !== 'dev';
-  const table = new dynamodb.Table(stack, 'CustomersTable', {
-    tableName: customersTable,
+  const table = new dynamodb.Table(stack, 'AccountsTable', {
+    tableName: accountsTable,
     partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
     sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
     billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -273,16 +275,16 @@ export const buildCustomersTable = (stack: cdk.Stack, env: string, customersTabl
     partitionKey: { name: 'GSI1PK', type: dynamodb.AttributeType.STRING },
     sortKey: { name: 'GSI1SK', type: dynamodb.AttributeType.STRING },
     projectionType: dynamodb.ProjectionType.INCLUDE,
-    nonKeyAttributes: ['customer_id'],
+    nonKeyAttributes: ['account_id'],
   });
   table.grantReadWriteData(taskRole);
   return table;
 };
 
-export const buildCustomerExportsBucket = (stack: cdk.Stack, env: string, taskRole: iam.IRole): s3.Bucket => {
+export const buildAccountExportsBucket = (stack: cdk.Stack, env: string, taskRole: iam.IRole): s3.Bucket => {
   const isProd = env !== 'dev';
-  const bucket = new s3.Bucket(stack, 'CustomerExports', {
-    bucketName: `komodo-customer-exports-${env}`,
+  const bucket = new s3.Bucket(stack, 'AccountExports', {
+    bucketName: `komodo-accounts-exports-${env}`,
     blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
     enforceSSL: true,
     encryption: s3.BucketEncryption.S3_MANAGED,
@@ -297,8 +299,8 @@ export const buildCustomerExportsBucket = (stack: cdk.Stack, env: string, taskRo
 
 export const buildAvatarsBucket = (stack: cdk.Stack, env: string, taskRole: iam.IRole): s3.Bucket => {
   const isProd = env !== 'dev';
-  const bucket = new s3.Bucket(stack, 'CustomerAvatars', {
-    bucketName: `komodo-customer-avatars-${env}`,
+  const bucket = new s3.Bucket(stack, 'AccountAvatars', {
+    bucketName: `komodo-accounts-avatars-${env}`,
     blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
     enforceSSL: true,
     encryption: s3.BucketEncryption.S3_MANAGED,
@@ -311,7 +313,7 @@ export const buildAvatarsBucket = (stack: cdk.Stack, env: string, taskRole: iam.
   return bucket;
 };
 
-export const buildStack = (stack: cdk.Stack, cfg: CustomerEnvConfig): void => {
+export const buildStack = (stack: cdk.Stack, cfg: AccountEnvConfig): void => {
   const logGroup = new LogGroup(stack, 'LogGroup', {
     logGroupName: `/ecs/${API_NAME}-${cfg.env}`,
     retention: logs.RetentionDays.ONE_MONTH,
@@ -321,7 +323,7 @@ export const buildStack = (stack: cdk.Stack, cfg: CustomerEnvConfig): void => {
   const vpc = ec2.Vpc.fromLookup(stack, 'Vpc', { tags: { Name: cfg.vpcTag } });
   const cluster = new ecs.Cluster(stack, 'Cluster', { vpc, clusterName: `${API_NAME}-${cfg.env}` });
   const ctx: ServiceBuildContext = { vpc, cluster, logGroup, cfg };
-  const svc = buildCustomerService(stack, ctx);
+  const svc = buildAccountService(stack, ctx);
 
   if (cfg.tags) {
     for (const [key, value] of Object.entries(cfg.tags)) {
@@ -329,8 +331,8 @@ export const buildStack = (stack: cdk.Stack, cfg: CustomerEnvConfig): void => {
     }
   }
 
-  const table = buildCustomersTable(stack, cfg.env, cfg.customersTable, svc.taskRole);
-  buildCustomerExportsBucket(stack, cfg.env, svc.taskRole);
+  const table = buildAccountsTable(stack, cfg.env, cfg.accountsTable, svc.taskRole);
+  buildAccountExportsBucket(stack, cfg.env, svc.taskRole);
   buildAvatarsBucket(stack, cfg.env, svc.taskRole);
 
   new cdk.CfnOutput(stack, 'AlbDnsName', { value: svc.alb.loadBalancerDnsName });
@@ -339,12 +341,12 @@ export const buildStack = (stack: cdk.Stack, cfg: CustomerEnvConfig): void => {
   new cdk.CfnOutput(stack, 'CloudMapServiceArn', { value: svc.cloudMapService.serviceArn });
   new cdk.CfnOutput(stack, 'ServiceSecurityGroupId', { value: svc.securityGroup.securityGroupId });
   new cdk.CfnOutput(stack, 'DomainName', { value: cfg.domainName });
-  new cdk.CfnOutput(stack, 'CustomersTableName', { value: cfg.customersTable });
-  new cdk.CfnOutput(stack, 'CustomersTableStreamArn', { value: table.tableStreamArn! });
-  new cdk.CfnOutput(stack, 'AvatarsBucketName', { value: `komodo-customer-avatars-${cfg.env}` });
+  new cdk.CfnOutput(stack, 'AccountsTableName', { value: cfg.accountsTable });
+  new cdk.CfnOutput(stack, 'AccountsTableStreamArn', { value: table.tableStreamArn! });
+  new cdk.CfnOutput(stack, 'AvatarsBucketName', { value: `komodo-accounts-avatars-${cfg.env}` });
 
   const waf = buildWaf(stack, svc.alb);
-  buildCustomerAlarms(stack, logGroup, svc.alb);
+  buildAccountAlarms(stack, logGroup, svc.alb);
 
   new cdk.CfnOutput(stack, 'WafWebAclArn', { value: waf.webAcl.attrArn });
 };
@@ -360,7 +362,7 @@ export const createInfra = () => {
     const cfg = env === globalConstants.ENV_STAGING ? STG_CONFIG : PROD_CONFIG;
     const account = cfg.account || app.node.tryGetContext('account') || '';
     const region = app.node.tryGetContext('region') ?? cfg.regions[0]?.region ?? awsConstants.REGION_EAST2;
-    buildStack(new cdk.Stack(app, `CustomerApi-${region}-${env}`, { env: { account, region } }), cfg);
+    buildStack(new cdk.Stack(app, `AccountApi-${region}-${env}`, { env: { account, region } }), cfg);
   } catch (err) {
     console.error('failed to create infrastructure:', err);
     process.exit(1);

@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ── Unit Tests: TTLCache ─────────────────────────────────────────────────────
-
 func TestTTLCache_SetAndGet(t *testing.T) {
 	c := New[string, int](time.Minute, 0)
 	defer c.Stop()

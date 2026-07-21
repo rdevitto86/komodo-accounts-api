@@ -1,6 +1,6 @@
-# komodo-customer-api
+# komodo-accounts-api
 
-User profile, address, payment method, and preference management for the Komodo platform.
+Account profile, address, payment method, and preference management for the Komodo platform.
 
 ---
 
@@ -15,15 +15,15 @@ User profile, address, payment method, and preference management for the Komodo 
 
 ## Routes
 
-### Public (`PORT`) — JWT required, user identity from token subject
+### Public (`PORT`) — JWT required, account identity from token subject
 
 | Method   | Path                    | Handler           | Description                        |
 |----------|-------------------------|-------------------|------------------------------------|
 | `GET`    | `/health`               | HealthHandler     | Liveness check                     |
-| `GET`    | `/me/profile`           | GetProfile        | Get authenticated user's profile   |
-| `POST`   | `/me/profile`           | CreateUser        | Create user record on registration |
-| `PUT`    | `/me/profile`           | UpdateProfile     | Update authenticated user's profile|
-| `DELETE` | `/me/profile`           | DeleteProfile     | Delete authenticated user's account|
+| `GET`    | `/me/profile`           | GetProfile        | Get authenticated account's profile   |
+| `POST`   | `/me/profile`           | CreateAccount     | Create account record on registration |
+| `PUT`    | `/me/profile`           | UpdateProfile     | Update authenticated account's profile|
+| `DELETE` | `/me/profile`           | DeleteProfile     | Delete authenticated account|
 | `GET`    | `/me/addresses`         | GetAddresses      | List all addresses                 |
 | `POST`   | `/me/addresses`         | AddAddress        | Add a new address                  |
 | `PUT`    | `/me/addresses/{id}`    | UpdateAddress     | Update an address by ID            |
@@ -31,19 +31,19 @@ User profile, address, payment method, and preference management for the Komodo 
 | `GET`    | `/me/payments`          | GetPayments       | List saved payment methods         |
 | `PUT`    | `/me/payments`          | UpsertPayment     | Add or update a payment method     |
 | `DELETE` | `/me/payments/{id}`     | DeletePayment     | Remove a payment method by ID      |
-| `GET`    | `/me/preferences`       | GetPreferences    | Get user preferences               |
-| `PUT`    | `/me/preferences`       | UpdatePreferences | Update user preferences            |
-| `DELETE` | `/me/preferences`       | DeletePreferences | Delete user preferences            |
+| `GET`    | `/me/preferences`       | GetPreferences    | Get account preferences            |
+| `PUT`    | `/me/preferences`       | UpdatePreferences | Update account preferences         |
+| `DELETE` | `/me/preferences`       | DeletePreferences | Delete account preferences         |
 
 ### Internal (`INTERNAL_PORT`) — service-to-service, `svc:` scoped JWT required
 
 | Method | Path                          | Handler        | Description                         |
 |--------|-------------------------------|----------------|-------------------------------------|
 | `GET`  | `/health`                     | HealthHandler  | Liveness check                      |
-| `GET`  | `/users/{id}`                 | GetProfile     | Get profile by user ID              |
-| `GET`  | `/users/{id}/addresses`       | GetAddresses   | Get addresses for a user            |
-| `GET`  | `/users/{id}/preferences`     | GetPreferences | Get preferences for a user          |
-| `GET`  | `/users/{id}/payments`        | GetPayments    | Get payment methods for a user      |
+| `GET`  | `/accounts/{id}`              | GetProfile     | Get profile by account ID           |
+| `GET`  | `/accounts/{id}/addresses`    | GetAddresses   | Get addresses for an account        |
+| `GET`  | `/accounts/{id}/preferences`  | GetPreferences | Get preferences for an account      |
+| `GET`  | `/accounts/{id}/payments`     | GetPayments    | Get payment methods for an account  |
 
 ---
 
@@ -53,7 +53,7 @@ User profile, address, payment method, and preference management for the Komodo 
 
 | Variable            | Required | Description                                          |
 |---------------------|----------|------------------------------------------------------|
-| `APP_NAME`          | Yes      | Service name for logging (`komodo-customer-api`)         |
+| `APP_NAME`          | Yes      | Service name for logging (`komodo-accounts-api`)         |
 | `ENV`               | Yes      | Runtime environment (`local`, `dev`, `staging`, `prod`) |
 | `LOG_LEVEL`         | Yes      | Log verbosity (`debug`, `info`, `error`)             |
 | `PORT`              | Yes      | Public server port (default: `7051`)                 |
@@ -61,7 +61,7 @@ User profile, address, payment method, and preference management for the Komodo 
 | `VERSION`           | No       | Deployed version tag                                 |
 | `AWS_REGION`        | Yes      | AWS region (e.g. `us-east-1`)                        |
 | `AWS_ENDPOINT`      | Yes      | AWS/LocalStack endpoint URL                          |
-| `AWS_SECRET_PREFIX` | Yes      | Secrets Manager path prefix (e.g. `komodo-customer-api/local`) |
+| `AWS_SECRET_PREFIX` | Yes      | Secrets Manager path prefix (e.g. `komodo-accounts-api/local`) |
 | `AWS_SECRET_BATCH`  | Yes      | Batch secret path (e.g. `/all-secrets`)              |
 | `EVAL_RULES_PATH`   | No       | Path to validation rules file                        |
 
@@ -72,9 +72,9 @@ User profile, address, payment method, and preference management for the Komodo 
 | `DYNAMODB_ENDPOINT`      | DynamoDB endpoint URL |
 | `DYNAMODB_ACCESS_KEY`    | DynamoDB AWS access key |
 | `DYNAMODB_SECRET_KEY`    | DynamoDB AWS secret key |
-| `DYNAMODB_TABLE`         | DynamoDB table name (`komodo-users`) |
-| `CUSTOMER_API_CLIENT_ID`     | Service client ID (used to obtain tokens from auth-api) |
-| `CUSTOMER_API_CLIENT_SECRET` | Service client secret |
+| `DYNAMODB_TABLE`         | DynamoDB table name (`komodo-accounts`) |
+| `ACCOUNTS_API_CLIENT_ID`     | Service client ID (used to obtain tokens from auth-api) |
+| `ACCOUNTS_API_CLIENT_SECRET` | Service client secret |
 | `JWT_PUBLIC_KEY`         | RSA public key (PEM) from auth-api — used to validate incoming tokens |
 | `JWT_PRIVATE_KEY`        | RSA private key (PEM) — required by `InitializeKeys()`; not used for signing |
 | `JWT_KID`                | Key ID (`test-kid` locally) |
@@ -100,7 +100,7 @@ User profile, address, payment method, and preference management for the Komodo 
 ### Run (public + internal in separate terminals)
 
 ```bash
-cd komodo-customer-api
+cd komodo-accounts-api
 
 # Terminal 1 — public API on :7051
 source .env.local && go run ./cmd/public
@@ -121,7 +121,7 @@ TOKEN=$(curl -s -X POST http://localhost:7011/oauth/token \
 # Service-scoped token for internal routes
 SVC_TOKEN=$(curl -s -X POST http://localhost:7011/oauth/token \
   -H "Content-Type: application/json" \
-  -d '{"clientId":"test-client","clientSecret":"test-secret","grantType":"client_credentials","scope":"svc:customer-api"}' \
+  -d '{"clientId":"test-client","clientSecret":"test-secret","grantType":"client_credentials","scope":"svc:accounts-api"}' \
   | jq -r .accessToken)
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -134,7 +134,7 @@ curl http://localhost:7052/health   # internal server
 curl -s http://localhost:7051/me/profile \
   -H "Authorization: Bearer $TOKEN" | jq
 
-# Create user (called on first login / registration)
+# Create account (called on first login / registration)
 curl -s -X POST http://localhost:7051/me/profile \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -229,20 +229,20 @@ curl -s -X DELETE http://localhost:7051/me/preferences \
 
 # ── Internal routes (service-to-service, port 7052) ──────────────────────────
 
-# Get user profile by ID
-curl -s http://localhost:7052/users/usr_abc123 \
+# Get account profile by ID
+curl -s http://localhost:7052/accounts/acct_abc123 \
   -H "Authorization: Bearer $SVC_TOKEN" | jq
 
-# Get addresses for a user
-curl -s http://localhost:7052/users/usr_abc123/addresses \
+# Get addresses for an account
+curl -s http://localhost:7052/accounts/acct_abc123/addresses \
   -H "Authorization: Bearer $SVC_TOKEN" | jq
 
-# Get preferences for a user
-curl -s http://localhost:7052/users/usr_abc123/preferences \
+# Get preferences for an account
+curl -s http://localhost:7052/accounts/acct_abc123/preferences \
   -H "Authorization: Bearer $SVC_TOKEN" | jq
 
-# Get payment methods for a user
-curl -s http://localhost:7052/users/usr_abc123/payments \
+# Get payment methods for an account
+curl -s http://localhost:7052/accounts/acct_abc123/payments \
   -H "Authorization: Bearer $SVC_TOKEN" | jq
 ```
 
@@ -255,10 +255,10 @@ curl -s http://localhost:7052/users/usr_abc123/payments \
 go test ./...
 
 # Start via monorepo (preferred)
-just up api          # starts infra + customer-api (if enabled in services.jsonc)
+just up api          # starts infra + accounts-api (if enabled in services.jsonc)
 
 # Docker (standalone — requires komodo-network, run just up first)
-cd apis/komodo-customer-api
+cd apis/komodo-accounts-api
 docker compose up --build
 ```
 
@@ -270,5 +270,5 @@ docker compose up --build
 
 **Public write** (`POST/PUT/DELETE` routes): same as read + Idempotency at the end
 
-**Internal** (`/users/*` routes): RequestID → Telemetry → Auth → Scope (`svc:` prefix required via `RequireServiceScope`)
+**Internal** (`/accounts/*` routes): RequestID → Telemetry → Auth → Scope (`svc:` prefix required via `RequireServiceScope`)
 

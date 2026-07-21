@@ -6,13 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
-	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
-	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	ctxKeys "github.com/rdevitto86/komodo-forge-sdk-go/http/context"
 	"go.uber.org/mock/gomock"
 
-	"komodo-customer-api/internal/api/mocks"
+	"komodo-accounts-api/test/mocks"
 )
 
 func newTestService(t *testing.T, ctrl *gomock.Controller) (*Service, *mocks.Mockrepository) {
@@ -43,7 +42,7 @@ func makeRequest(t *testing.T, method, path string, body any) *http.Request {
 	return req
 }
 
-func withUserID(req *http.Request, id string) *http.Request {
+func withAccountID(req *http.Request, id string) *http.Request {
 	ctx := context.WithValue(req.Context(), ctxKeys.USER_ID_KEY, id)
 	return req.WithContext(ctx)
 }
@@ -53,44 +52,77 @@ func withScopes(req *http.Request, scopes []string) *http.Request {
 	return req.WithContext(ctx)
 }
 
-// ── Fake: s3ClientAPI ────────────────────────────────────────────────────────
-
-type mockS3Ops struct {
-	putFn    func(context.Context, *awss3.PutObjectInput, ...func(*awss3.Options)) (*awss3.PutObjectOutput, error)
-	listFn   func(context.Context, *awss3.ListObjectsV2Input, ...func(*awss3.Options)) (*awss3.ListObjectsV2Output, error)
-	deleteFn func(context.Context, *awss3.DeleteObjectsInput, ...func(*awss3.Options)) (*awss3.DeleteObjectsOutput, error)
+type mockS3 struct {
+	getObjectFn     func(ctx context.Context, bucket, key string) ([]byte, error)
+	getObjectAsFn   func(ctx context.Context, bucket, key string, out any) error
+	putObjectFn     func(ctx context.Context, bucket, key string, data []byte, contentType string) error
+	deleteObjectFn  func(ctx context.Context, bucket, key string) error
+	listObjectsFn   func(ctx context.Context, bucket, prefix string) ([]string, error)
+	deleteObjectsFn func(ctx context.Context, bucket string, keys []string) error
+	headBucketFn    func(ctx context.Context, bucket string) error
+	presignPutFn    func(ctx context.Context, bucket, key string, ttl time.Duration, contentType string, contentLength int64) (string, error)
+	presignGetFn    func(ctx context.Context, bucket, key string, ttl time.Duration) (string, error)
 }
 
-func (m *mockS3Ops) PutObject(ctx context.Context, params *awss3.PutObjectInput, optFns ...func(*awss3.Options)) (*awss3.PutObjectOutput, error) {
-	if m.putFn != nil {
-		return m.putFn(ctx, params, optFns...)
+func (m *mockS3) GetObject(ctx context.Context, bucket, key string) ([]byte, error) {
+	if m.getObjectFn != nil {
+		return m.getObjectFn(ctx, bucket, key)
 	}
-	return &awss3.PutObjectOutput{}, nil
+	return nil, nil
 }
 
-func (m *mockS3Ops) ListObjectsV2(ctx context.Context, params *awss3.ListObjectsV2Input, optFns ...func(*awss3.Options)) (*awss3.ListObjectsV2Output, error) {
-	if m.listFn != nil {
-		return m.listFn(ctx, params, optFns...)
+func (m *mockS3) GetObjectAs(ctx context.Context, bucket, key string, out any) error {
+	if m.getObjectAsFn != nil {
+		return m.getObjectAsFn(ctx, bucket, key, out)
 	}
-	return &awss3.ListObjectsV2Output{}, nil
+	return nil
 }
 
-func (m *mockS3Ops) DeleteObjects(ctx context.Context, params *awss3.DeleteObjectsInput, optFns ...func(*awss3.Options)) (*awss3.DeleteObjectsOutput, error) {
-	if m.deleteFn != nil {
-		return m.deleteFn(ctx, params, optFns...)
+func (m *mockS3) PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error {
+	if m.putObjectFn != nil {
+		return m.putObjectFn(ctx, bucket, key, data, contentType)
 	}
-	return &awss3.DeleteObjectsOutput{}, nil
+	return nil
 }
 
-// ── Fake: s3PresignAPI ───────────────────────────────────────────────────────
-
-type mockS3Presign struct {
-	presignFn func(context.Context, *awss3.GetObjectInput, ...func(*awss3.PresignOptions)) (*v4.PresignedHTTPRequest, error)
-}
-
-func (m *mockS3Presign) PresignGetObject(ctx context.Context, params *awss3.GetObjectInput, optFns ...func(*awss3.PresignOptions)) (*v4.PresignedHTTPRequest, error) {
-	if m.presignFn != nil {
-		return m.presignFn(ctx, params, optFns...)
+func (m *mockS3) DeleteObject(ctx context.Context, bucket, key string) error {
+	if m.deleteObjectFn != nil {
+		return m.deleteObjectFn(ctx, bucket, key)
 	}
-	return &v4.PresignedHTTPRequest{URL: "https://example.com/presigned-download"}, nil
+	return nil
+}
+
+func (m *mockS3) ListObjects(ctx context.Context, bucket, prefix string) ([]string, error) {
+	if m.listObjectsFn != nil {
+		return m.listObjectsFn(ctx, bucket, prefix)
+	}
+	return nil, nil
+}
+
+func (m *mockS3) DeleteObjects(ctx context.Context, bucket string, keys []string) error {
+	if m.deleteObjectsFn != nil {
+		return m.deleteObjectsFn(ctx, bucket, keys)
+	}
+	return nil
+}
+
+func (m *mockS3) HeadBucket(ctx context.Context, bucket string) error {
+	if m.headBucketFn != nil {
+		return m.headBucketFn(ctx, bucket)
+	}
+	return nil
+}
+
+func (m *mockS3) PresignPut(ctx context.Context, bucket, key string, ttl time.Duration, contentType string, contentLength int64) (string, error) {
+	if m.presignPutFn != nil {
+		return m.presignPutFn(ctx, bucket, key, ttl, contentType, contentLength)
+	}
+	return "https://example.com/presigned-upload", nil
+}
+
+func (m *mockS3) PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, error) {
+	if m.presignGetFn != nil {
+		return m.presignGetFn(ctx, bucket, key, ttl)
+	}
+	return "https://example.com/presigned-download", nil
 }

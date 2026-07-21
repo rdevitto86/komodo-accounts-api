@@ -16,9 +16,6 @@ func TestHealth(t *testing.T) {
 	checkStatus(t, res, http.StatusOK)
 }
 
-// --- Profile ---
-
-// TestGetProfile_NoAuth verifies unauthenticated requests are rejected.
 func TestGetProfile_NoAuth(t *testing.T) {
 	testutil.E2E(t)
 	res := get(t, "/me/profile", nil)
@@ -26,7 +23,6 @@ func TestGetProfile_NoAuth(t *testing.T) {
 	checkStatus(t, res, http.StatusUnauthorized)
 }
 
-// TestGetProfile fetches the authenticated user's profile.
 func TestGetProfile(t *testing.T) {
 	testutil.E2E(t)
 	res := get(t, "/me/profile", authHeader(t))
@@ -43,18 +39,14 @@ func TestGetProfile(t *testing.T) {
 	}
 }
 
-// TestUpdateProfile updates a mutable profile field.
 func TestUpdateProfile(t *testing.T) {
 	testutil.E2E(t)
 	h := authHeader(t)
-	res := put(t, "/me/profile", map[string]any{"display_name": "E2E Test User"}, h)
+	res := put(t, "/me/profile", map[string]any{"display_name": "E2E Test Account"}, h)
 	defer res.Body.Close()
 	checkStatus(t, res, http.StatusOK)
 }
 
-// --- Addresses ---
-
-// TestAddresses_NoAuth verifies address routes require auth.
 func TestAddresses_NoAuth(t *testing.T) {
 	testutil.E2E(t)
 	res := get(t, "/me/addresses", nil)
@@ -62,8 +54,6 @@ func TestAddresses_NoAuth(t *testing.T) {
 	checkStatus(t, res, http.StatusUnauthorized)
 }
 
-// TestAddresses_List fetches the authenticated user's saved addresses.
-// Returns 501 if DynamoDB schema is not yet wired.
 func TestAddresses_List(t *testing.T) {
 	testutil.E2E(t)
 	res := get(t, "/me/addresses", authHeader(t))
@@ -74,7 +64,6 @@ func TestAddresses_List(t *testing.T) {
 	checkStatus(t, res, http.StatusOK)
 }
 
-// TestAddresses_AddAndDelete adds a new address then deletes it.
 func TestAddresses_AddAndDelete(t *testing.T) {
 	testutil.E2E(t)
 	h := authHeader(t)
@@ -107,9 +96,6 @@ func TestAddresses_AddAndDelete(t *testing.T) {
 	checkStatus(t, delResp, http.StatusOK)
 }
 
-// --- Payment methods ---
-
-// TestPayments_NoAuth verifies payment routes require auth.
 func TestPayments_NoAuth(t *testing.T) {
 	testutil.E2E(t)
 	res := get(t, "/me/payments", nil)
@@ -117,7 +103,6 @@ func TestPayments_NoAuth(t *testing.T) {
 	checkStatus(t, res, http.StatusUnauthorized)
 }
 
-// TestPayments_List fetches the authenticated user's saved payment methods.
 func TestPayments_List(t *testing.T) {
 	testutil.E2E(t)
 	res := get(t, "/me/payments", authHeader(t))
@@ -128,9 +113,6 @@ func TestPayments_List(t *testing.T) {
 	checkStatus(t, res, http.StatusOK)
 }
 
-// --- Preferences ---
-
-// TestPreferences_NoAuth verifies preference routes require auth.
 func TestPreferences_NoAuth(t *testing.T) {
 	testutil.E2E(t)
 	res := get(t, "/me/preferences", nil)
@@ -138,7 +120,6 @@ func TestPreferences_NoAuth(t *testing.T) {
 	checkStatus(t, res, http.StatusUnauthorized)
 }
 
-// TestPreferences_GetAndUpdate reads then updates user preferences.
 func TestPreferences_GetAndUpdate(t *testing.T) {
 	testutil.E2E(t)
 	h := authHeader(t)
@@ -158,7 +139,6 @@ func TestPreferences_GetAndUpdate(t *testing.T) {
 	checkStatus(t, putResp, http.StatusOK)
 }
 
-// TestPreferences_Delete removes the authenticated user's preferences.
 func TestPreferences_Delete(t *testing.T) {
 	testutil.E2E(t)
 	h := authHeader(t)

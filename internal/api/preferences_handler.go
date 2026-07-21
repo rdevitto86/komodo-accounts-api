@@ -6,23 +6,23 @@ import (
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
 	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 
-	"komodo-customer-api/internal/models"
+	"komodo-accounts-api/internal/models"
 )
 
 func (s *Service) GetPreferencesHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromPath(req)
-	if userID == "" {
-		userID = userIDFromJWT(req)
+	accountID := req.PathValue("id")
+	if accountID == "" {
+		accountID = accountIDFromJWT(req)
 	}
-	if userID == "" {
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
 
-	prefs, err := s.GetPreferences(req.Context(), userID)
+	prefs, err := s.GetPreferences(req.Context(), accountID)
 	if err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 
@@ -32,8 +32,8 @@ func (s *Service) GetPreferencesHandler(wtr http.ResponseWriter, req *http.Reque
 }
 
 func (s *Service) UpdatePreferencesHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromJWT(req)
-	if userID == "" {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -45,30 +45,30 @@ func (s *Service) UpdatePreferencesHandler(wtr http.ResponseWriter, req *http.Re
 		return
 	}
 
-	if err := s.UpdatePreferences(req.Context(), userID, &input); err != nil {
-		sendUserError(wtr, req, err)
+	if err := s.UpdatePreferences(req.Context(), accountID, &input); err != nil {
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "preferences"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "preferences"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, input)
 }
 
 func (s *Service) DeletePreferencesHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromJWT(req)
-	if userID == "" {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
 
-	if err := s.DeletePreferences(req.Context(), userID); err != nil {
-		sendUserError(wtr, req, err)
+	if err := s.DeletePreferences(req.Context(), accountID); err != nil {
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "preferences"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "preferences"))
 	wtr.WriteHeader(http.StatusNoContent)
 }

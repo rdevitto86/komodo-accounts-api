@@ -8,23 +8,24 @@ import (
 	ctxKeys "github.com/rdevitto86/komodo-forge-sdk-go/http/context"
 	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 
-	"komodo-customer-api/internal/models"
+	"komodo-accounts-api/internal/models"
 )
 
+// Route handler that retrieves account settings
 func (s *Service) GetSettingsHandler(wtr http.ResponseWriter, req *http.Request) {
-	customerID := userIDFromPath(req)
-	if customerID == "" {
-		customerID = userIDFromJWT(req)
+	accountID := req.PathValue("id")
+	if accountID == "" {
+		accountID = accountIDFromJWT(req)
 	}
-	if customerID == "" {
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
 
-	settings, err := s.GetSettings(req.Context(), customerID)
+	settings, err := s.GetSettings(req.Context(), accountID)
 	if err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 
@@ -33,9 +34,10 @@ func (s *Service) GetSettingsHandler(wtr http.ResponseWriter, req *http.Request)
 	writeJSON(wtr, settings)
 }
 
+// Route handler that updates settings for an account
 func (s *Service) UpdateSettingsHandler(wtr http.ResponseWriter, req *http.Request) {
-	customerID := userIDFromPath(req)
-	if customerID == "" {
+	accountID := req.PathValue("id")
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -49,24 +51,26 @@ func (s *Service) UpdateSettingsHandler(wtr http.ResponseWriter, req *http.Reque
 
 	if input.Status != nil {
 		callerSvc := callerServiceFromScopes(req)
-		if callerSvc != "customer-servicing-api" && callerSvc != "customer-api" {
+		if callerSvc != "customer-servicing-api" && callerSvc != "accounts-api" {
 			httpErr.SendError(wtr, req, models.Err.ForbiddenNamespace)
 			return
 		}
 	}
 
-	updated, err := s.UpdateSettings(req.Context(), customerID, &input)
+	updated, err := s.UpdateSettings(req.Context(), accountID, &input)
 	if err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", customerID), logger.Attr("resource", "settings"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "settings"))
+
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, updated)
 }
 
+// Helper function to extract service name from request scopes
 func callerServiceFromScopes(req *http.Request) string {
 	scopes, _ := req.Context().Value(ctxKeys.SCOPES_KEY).([]string)
 	for _, s := range scopes {
@@ -77,9 +81,10 @@ func callerServiceFromScopes(req *http.Request) string {
 	return ""
 }
 
+// Route handler that updates settings tags on an account
 func (s *Service) UpdateSettingsTagsHandler(wtr http.ResponseWriter, req *http.Request) {
-	customerID := userIDFromPath(req)
-	if customerID == "" {
+	accountID := req.PathValue("id")
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -97,13 +102,14 @@ func (s *Service) UpdateSettingsTagsHandler(wtr http.ResponseWriter, req *http.R
 		return
 	}
 
-	updated, err := s.UpdateSettingsTags(req.Context(), customerID, callerSvc, &input)
+	updated, err := s.UpdateSettingsTags(req.Context(), accountID, callerSvc, &input)
 	if err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", customerID), logger.Attr("resource", "settings.tags"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "settings.tags"))
+
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, updated)

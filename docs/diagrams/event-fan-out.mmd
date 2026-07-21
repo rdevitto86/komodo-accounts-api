@@ -1,8 +1,8 @@
 flowchart LR
-    CUST[customer-api]
-    DDB[(DynamoDB<br/>komodo-customers)]
+    ACCT[accounts-api]
+    DDB[(DynamoDB<br/>komodo-accounts)]
     CDC[events-api<br/>CDC Lambda]
-    TOPIC[SNS FIFO<br/>komodo-customer-events]
+    TOPIC[SNS FIFO<br/>komodo-accounts-events]
     QL[SQS FIFO<br/>loyalty]
     QC[SQS FIFO<br/>comms]
     QP[SQS FIFO<br/>promotions]
@@ -12,10 +12,22 @@ flowchart LR
     PROMO[promotions-api]
     INS[insights-api]
 
-    CUST --> DDB
+    ACCT --> DDB
     DDB -->|NEW_AND_OLD_IMAGES| CDC
     CDC --> TOPIC
     TOPIC --> QL --> LOY
     TOPIC --> QC --> COMMS
     TOPIC --> QP --> PROMO
     TOPIC --> QI --> INS
+
+    classDef publicPlane fill:#CDEDE8,stroke:#2A9D8F,color:#12403A;
+    classDef dataLayer fill:#F3E3C3,stroke:#C9973B,color:#5A4413;
+    classDef external fill:#E7E9EC,stroke:#9AA1A9,color:#33383D;
+    classDef pipeline fill:#D9E7CC,stroke:#7A9A65,color:#334524;
+
+    class ACCT publicPlane;
+    class DDB dataLayer;
+    class CDC,TOPIC,QL,QC,QP,QI pipeline;
+    class LOY,COMMS,PROMO,INS external;
+
+    style ACCT stroke-width:3px;

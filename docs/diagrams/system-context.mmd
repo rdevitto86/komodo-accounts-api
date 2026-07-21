@@ -1,32 +1,38 @@
-flowchart LR
-    UI[UI / BFF]
-    AUTH[auth-api]
-    PAY[payments-api]
-    ORD[order-api]
-    COMMS[communications-api]
-    LOY[loyalty-api]
-    PROMO[promotions-api]
-    INS[insights-api]
+flowchart TD
+    Internet([Internet])
+    BFF["UI / BFF"]
+    Services["Sibling Komodo services<br/>auth · payments · order · comms"]
 
-    CUST[komodo-customer-api]
+    subgraph Accounts["Komodo Accounts API — account identity store"]
+        direction LR
+        Pub["public plane<br/>profile · addresses · payments · unsubscribe"]
+        Priv["private plane<br/>credential lookup · VPC-internal only"]
+    end
 
-    DDB[(DynamoDB<br/>komodo-customers)]
-    S3[(S3<br/>komodo-customer-exports)]
-    SM[Secrets Manager]
-    EVT[komodo-events-api]
+    Events["events-api<br/>change fan-out"]
+    Downstream["loyalty · comms · promotions · insights"]
 
-    UI -->|public REST| CUST
-    AUTH -->|private REST| CUST
-    PAY  -->|private REST| CUST
-    ORD  -->|private REST| CUST
-    COMMS -->|private REST| CUST
+    Internet --> BFF
+    BFF -->|"public REST"| Pub
+    Services -->|"private REST"| Priv
+    Accounts -->|"account events"| Events
+    Events --> Downstream
 
-    CUST --> DDB
-    CUST --> S3
-    CUST --> SM
+    Note["Account identity store — not the authenticator.<br/>auth-api owns sign-in and token issuance."]
+    Pub -.- Note
+    Priv -.- Note
 
-    DDB -->|stream| EVT
-    EVT -->|domain events| LOY
-    EVT -->|domain events| COMMS
-    EVT -->|domain events| PROMO
-    EVT -->|domain events| INS
+    classDef publicPlane fill:#CDEDE8,stroke:#2A9D8F,color:#12403A;
+    classDef privatePlane fill:#DDD8F5,stroke:#5B4FB0,color:#2A2456;
+    classDef dataLayer fill:#F3E3C3,stroke:#C9973B,color:#5A4413;
+    classDef external fill:#E7E9EC,stroke:#9AA1A9,color:#33383D;
+    classDef pipeline fill:#D9E7CC,stroke:#7A9A65,color:#334524;
+
+    class Pub publicPlane;
+    class Priv privatePlane;
+    class Internet,BFF,Services,Downstream external;
+    class Events pipeline;
+
+    style Pub stroke-width:3px;
+    style Priv stroke-width:3px;
+    style Accounts fill:#FBFBFD,stroke:#B9BFC7,stroke-width:1px;

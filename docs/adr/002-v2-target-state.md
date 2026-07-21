@@ -41,5 +41,5 @@ dev/docker-compose).
   middleware supports it.
 
 **Constraints carried from V1:** keys stay small, self-expiring, and namespaced per service; the
-regional cluster is shared platform infrastructure, not a customer-api-owned resource; DynamoDB
+regional cluster is shared platform infrastructure, not an accounts-api-owned resource; DynamoDB
 conditional writes remain the correctness backstop regardless of cache availability.

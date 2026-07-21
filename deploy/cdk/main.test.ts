@@ -5,7 +5,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import type { CustomerEnvConfig, ServiceBuildContext } from './main.js';
+import type { AccountEnvConfig, ServiceBuildContext } from './main.js';
 import {
   STG_CONFIG,
   PROD_CONFIG,
@@ -13,11 +13,12 @@ import {
   PUBLIC_PORT,
   PRIVATE_PORT,
   VERSION,
+  EVAL_RULES_PATH,
   buildStack,
-  buildCustomerService,
+  buildAccountService,
   buildWaf,
-  buildCustomerAlarms,
-  buildCustomersTable,
+  buildAccountAlarms,
+  buildAccountsTable,
   buildAvatarsBucket,
   createInfra,
 } from './main.js';
@@ -27,7 +28,7 @@ function makeStack(): [cdk.Stack, cdk.App] {
   return [new cdk.Stack(app, 'TestStack', { env: { account: '123456789012', region: 'us-east-2' } }), app];
 }
 
-function makeCtx(stack: cdk.Stack, cfg: CustomerEnvConfig): ServiceBuildContext {
+function makeCtx(stack: cdk.Stack, cfg: AccountEnvConfig): ServiceBuildContext {
   const vpc = ec2.Vpc.fromLookup(stack, 'Vpc', { tags: { Name: cfg.vpcTag } });
   return {
     vpc,
@@ -43,10 +44,10 @@ describe('configs', () => {
       cpu: 512,
       memory: 1024,
       maxCapacity: 3,
-      customersTable: 'komodo-customers-stg',
-      secretPath: 'komodo/stg/customer-api',
+      accountsTable: 'komodo-accounts-stg',
+      secretPath: 'komodo/stg/accounts-api',
       vpcTag: 'komodo-stg',
-      domainName: 'customer-stg.komodo.com',
+      domainName: 'accounts-stg.komodo.com',
     });
     expect(STG_CONFIG.tags).toMatchObject({ dataClassification: 'pii' });
   });
@@ -56,22 +57,22 @@ describe('configs', () => {
       cpu: 1024,
       memory: 2048,
       maxCapacity: 6,
-      customersTable: 'komodo-customers-prod',
-      secretPath: 'komodo/prod/customer-api',
-      domainName: 'customer.komodo.com',
+      accountsTable: 'komodo-accounts-prod',
+      secretPath: 'komodo/prod/accounts-api',
+      domainName: 'accounts.komodo.com',
     });
     expect(PROD_CONFIG.tags).toMatchObject({ dataClassification: 'pii' });
   });
 });
 
-describe('buildCustomerService', () => {
+describe('buildAccountService', () => {
   let stack: cdk.Stack;
   let template: Template;
 
   beforeAll(() => {
     [stack] = makeStack();
     const ctx = makeCtx(stack, STG_CONFIG);
-    buildCustomerService(stack, ctx);
+    buildAccountService(stack, ctx);
     template = Template.fromStack(stack);
   });
 
@@ -85,9 +86,10 @@ describe('buildCustomerService', () => {
             Match.objectLike({ Name: 'PORT', Value: `:${PUBLIC_PORT}` }),
             Match.objectLike({ Name: 'PORT_PRIVATE', Value: `:${PRIVATE_PORT}` }),
             Match.objectLike({ Name: 'VERSION', Value: VERSION }),
+            Match.objectLike({ Name: 'EVAL_RULES_PATH', Value: EVAL_RULES_PATH }),
             Match.objectLike({ Name: 'AWS_REGION', Value: 'us-east-2' }),
-            Match.objectLike({ Name: 'DYNAMODB_TABLE', Value: 'komodo-customers-stg' }),
-            Match.objectLike({ Name: 'S3_AVATAR_BUCKET', Value: 'komodo-customer-avatars-stg' }),
+            Match.objectLike({ Name: 'DYNAMODB_TABLE', Value: 'komodo-accounts-stg' }),
+            Match.objectLike({ Name: 'S3_AVATAR_BUCKET', Value: 'komodo-accounts-avatars-stg' }),
           ]),
         }),
       ]),
@@ -144,7 +146,7 @@ describe('buildCustomerService', () => {
   it('registers Cloud Map service for private port', () => {
     template.resourceCountIs('AWS::ServiceDiscovery::PrivateDnsNamespace', 1);
     template.hasResourceProperties('AWS::ServiceDiscovery::Service', {
-      Name: 'customer-api',
+      Name: 'accounts-api',
       DnsConfig: Match.objectLike({
         DnsRecords: Match.arrayWith([Match.objectLike({ Type: 'A' })]),
       }),
@@ -159,12 +161,12 @@ describe('buildCustomerService', () => {
 describe('WAF and Alarms', () => {
   let stack: cdk.Stack;
   let ctx: ServiceBuildContext;
-  let svc: ReturnType<typeof buildCustomerService>;
+  let svc: ReturnType<typeof buildAccountService>;
 
   beforeEach(() => {
     [stack] = makeStack();
     ctx = makeCtx(stack, STG_CONFIG);
-    svc = buildCustomerService(stack, ctx);
+    svc = buildAccountService(stack, ctx);
   });
 
   describe('buildWaf', () => {
@@ -186,9 +188,9 @@ describe('WAF and Alarms', () => {
     });
   });
 
-  describe('buildCustomerAlarms', () => {
+  describe('buildAccountAlarms', () => {
     it('creates metric filters and alarms on top of the FargateService base alarms', () => {
-      buildCustomerAlarms(stack, ctx.logGroup, svc.alb);
+      buildAccountAlarms(stack, ctx.logGroup, svc.alb);
       const template = Template.fromStack(stack);
 
       template.resourceCountIs('AWS::Logs::MetricFilter', 2);
@@ -197,11 +199,11 @@ describe('WAF and Alarms', () => {
   });
 });
 
-describe('buildCustomersTable', () => {
+describe('buildAccountsTable', () => {
   it('creates DynamoDB table with correct configuration and grants access', () => {
     const [stack] = makeStack();
     const role = new iam.Role(stack, 'TestRole', { assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com') });
-    buildCustomersTable(stack, 'dev', 'komodo-customers-dev', role);
+    buildAccountsTable(stack, 'dev', 'komodo-accounts-dev', role);
     const template = Template.fromStack(stack);
 
     template.hasResourceProperties('AWS::DynamoDB::Table', {
@@ -306,8 +308,8 @@ describe('buildStack', () => {
       template.hasOutput('CloudMapServiceArn', {});
       template.hasOutput('ServiceSecurityGroupId', {});
       template.hasOutput('DomainName', {});
-      template.hasOutput('CustomersTableName', {});
-      template.hasOutput('CustomersTableStreamArn', {});
+      template.hasOutput('AccountsTableName', {});
+      template.hasOutput('AccountsTableStreamArn', {});
       template.hasOutput('AvatarsBucketName', {});
       template.hasOutput('WafWebAclArn', {});
     });
@@ -335,8 +337,8 @@ describe('buildStack', () => {
     template.hasOutput('CloudMapServiceArn', {});
     template.hasOutput('ServiceSecurityGroupId', {});
     template.hasOutput('DomainName', {});
-    template.hasOutput('CustomersTableName', {});
-    template.hasOutput('CustomersTableStreamArn', {});
+    template.hasOutput('AccountsTableName', {});
+    template.hasOutput('AccountsTableStreamArn', {});
     template.hasOutput('AvatarsBucketName', {});
     template.hasOutput('WafWebAclArn', {});
   });

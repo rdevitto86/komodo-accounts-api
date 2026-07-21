@@ -1,5 +1,5 @@
 {
-  "name": "komodo-customer-api-cdk",
+  "name": "komodo-accounts-api-cdk",
   "version": "1.0.0",
   "type": "module",
   "main": "lib/main.js",
@@ -17,7 +17,7 @@
     "@vitest/coverage-v8": "^4.1.0",
     "aws-cdk": "^2.1129.0",
     "tsx": "^4.23.0",
-    "typescript": "^6.0.0",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   },
   "dependencies": {

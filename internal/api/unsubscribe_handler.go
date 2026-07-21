@@ -7,9 +7,10 @@ import (
 	httpReq "github.com/rdevitto86/komodo-forge-sdk-go/api/request"
 	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 
-	"komodo-customer-api/internal/models"
+	"komodo-accounts-api/internal/models"
 )
 
+// Route handler that verifies an unsubscribe token and records the unsubscribe event
 func (s *Service) UnsubscribeHandler(wtr http.ResponseWriter, req *http.Request) {
 	var input models.UnsubscribeRequest
 	if err := decodeStrict(req, &input); err != nil || input.Token == "" {
@@ -18,19 +19,20 @@ func (s *Service) UnsubscribeHandler(wtr http.ResponseWriter, req *http.Request)
 	}
 
 	ip := httpReq.GetClientKey(req)
-	ua := req.Header.Get("User-Agent")
+	ua := req.Header.Get("Account-Agent")
 
 	if err := s.VerifyAndRecordUnsubscribe(req.Context(), input.Token, ip, ua); err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 
 	wtr.WriteHeader(http.StatusNoContent)
 }
 
+// Route handler that mints an unsubscribe token for a given account and channel
 func (s *Service) MintUnsubscribeTokenHandler(wtr http.ResponseWriter, req *http.Request) {
-	customerID := userIDFromPath(req)
-	if customerID == "" {
+	accountID := req.PathValue("id")
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -42,9 +44,9 @@ func (s *Service) MintUnsubscribeTokenHandler(wtr http.ResponseWriter, req *http
 		return
 	}
 
-	token, err := s.MintUnsubscribeToken(req.Context(), customerID, input.Channel)
+	token, err := s.MintUnsubscribeToken(req.Context(), accountID, input.Channel)
 	if err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 

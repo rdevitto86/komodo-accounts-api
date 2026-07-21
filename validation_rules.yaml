@@ -10,10 +10,10 @@
 #   lenient — validate declared constraints; missing API version is allowed
 #   strict  — version header required; all declared constraints enforced
 #
-# Routes without a version prefix (/me/*, /users/*) use "lenient".
+# Routes without a version prefix (/me/*, /accounts/*) use "lenient".
 # Upgrade individual routes to "strict" once API versioning is introduced.
 #
-# Path param pattern for all resource IDs (usr_xxx, addr_xxx, pay_xxx):
+# Path param pattern for all resource IDs (acct_xxx, addr_xxx, pay_xxx):
 #   ^[a-z]{2,6}_[a-zA-Z0-9]{12,32}$
 #
 
@@ -102,6 +102,30 @@ rules:
           required: false
 
     DELETE:
+      level: "lenient"
+      headers:
+        Authorization:
+          required: true
+          value: "Bearer *"
+
+  "/me/profile/restore":
+    POST:
+      level: "lenient"
+      headers:
+        Authorization:
+          required: true
+          value: "Bearer *"
+
+  "/me/profile/export":
+    POST:
+      level: "lenient"
+      headers:
+        Authorization:
+          required: true
+          value: "Bearer *"
+
+  "/me/profile/avatar":
+    POST:
       level: "lenient"
       headers:
         Authorization:

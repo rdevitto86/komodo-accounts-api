@@ -1,30 +1,41 @@
-flowchart TB
-    subgraph Internet
-        USR[end user]
+flowchart TD
+    Internet([Internet])
+    ALB["ALB + WAF<br/>managed rules · rate limits 2000 / 200 rpm"]
+
+    subgraph ECS["ECS Fargate cluster — auto-scaling per env"]
+        direction LR
+        Pub["accounts-api-public :7051<br/>profile · addresses · payments · unsubscribe"]
+        Priv["accounts-api-private :7052<br/>credential lookup · VPC-internal only"]
     end
 
-    subgraph AWS_VPC[AWS VPC]
-        subgraph PUB[Public subnets]
-            ALB[ALB + WAF]
-        end
-        subgraph PRV[Private subnets]
-            PUBSVC[Fargate<br/>customer-api-public<br/>:7051]
-            PRVSVC[Fargate<br/>customer-api-private<br/>:7052]
-        end
-    end
+    DDB[("DynamoDB<br/>komodo-accounts")]
+    S3[("S3<br/>komodo-accounts-exports")]
+    SM[("Secrets Manager")]
+    CW["CloudWatch<br/>logs · alarms"]
 
-    DDB[(DynamoDB<br/>komodo-customers)]
-    S3[(S3<br/>komodo-customer-exports)]
-    SM[Secrets Manager]
-    CW[CloudWatch Logs + Alarms]
+    Internet --> ALB --> Pub
 
-    USR -->|HTTPS| ALB
-    ALB --> PUBSVC
-    PUBSVC --> DDB
-    PUBSVC --> S3
-    PUBSVC --> SM
-    PRVSVC --> DDB
-    PRVSVC --> S3
-    PRVSVC --> SM
-    PUBSVC --> CW
-    PRVSVC --> CW
+    Pub --> DDB
+    Pub --> S3
+    Pub --> SM
+    Pub --> CW
+
+    Priv --> DDB
+    Priv --> S3
+    Priv --> SM
+    Priv --> CW
+
+    classDef publicPlane fill:#CDEDE8,stroke:#2A9D8F,color:#12403A;
+    classDef privatePlane fill:#DDD8F5,stroke:#5B4FB0,color:#2A2456;
+    classDef dataLayer fill:#F3E3C3,stroke:#C9973B,color:#5A4413;
+    classDef external fill:#E7E9EC,stroke:#9AA1A9,color:#33383D;
+    classDef pipeline fill:#D9E7CC,stroke:#7A9A65,color:#334524;
+
+    class ALB,Pub publicPlane;
+    class Priv privatePlane;
+    class DDB,S3,SM dataLayer;
+    class Internet,CW external;
+
+    style Pub stroke-width:3px;
+    style Priv stroke-width:3px;
+    style ECS fill:#FBFBFD,stroke:#B9BFC7,stroke-width:1px;

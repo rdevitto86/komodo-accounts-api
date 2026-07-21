@@ -1,6 +1,6 @@
 //go:build e2e
 
-// Package e2e_test contains end-to-end tests for komodo-customer-api.
+// Package e2e_test contains end-to-end tests for komodo-accounts-api.
 // Tests exercise the full request path: HTTP → handler → address provider (stub or real).
 //
 // Prerequisites:
@@ -46,7 +46,6 @@ func makeURL(path string) string {
 	return fmt.Sprintf("%s%s", baseURL, path)
 }
 
-// get issues a GET. Callers must close res.Body.
 func get(t *testing.T, path string, headers map[string]string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, makeURL(path), nil)
@@ -63,7 +62,6 @@ func get(t *testing.T, path string, headers map[string]string) *http.Response {
 	return res
 }
 
-// post issues a POST with an optional JSON body. Callers must close res.Body.
 func post(t *testing.T, path string, body any, headers map[string]string) *http.Response {
 	t.Helper()
 	var r io.Reader
@@ -91,7 +89,6 @@ func post(t *testing.T, path string, body any, headers map[string]string) *http.
 	return res
 }
 
-// put issues a PUT with an optional JSON body. Callers must close res.Body.
 func put(t *testing.T, path string, body any, headers map[string]string) *http.Response {
 	t.Helper()
 	var r io.Reader
@@ -119,7 +116,6 @@ func put(t *testing.T, path string, body any, headers map[string]string) *http.R
 	return res
 }
 
-// del issues a DELETE. Callers must close res.Body.
 func del(t *testing.T, path string, headers map[string]string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodDelete, makeURL(path), nil)
@@ -136,8 +132,6 @@ func del(t *testing.T, path string, headers map[string]string) *http.Response {
 	return res
 }
 
-// checkStatus fails if res.StatusCode != want, printing the body for context.
-// Does NOT close the body — callers must defer res.Body.Close().
 func checkStatus(t *testing.T, res *http.Response, want int) {
 	t.Helper()
 	if res.StatusCode != want {
@@ -146,8 +140,6 @@ func checkStatus(t *testing.T, res *http.Response, want int) {
 	}
 }
 
-// decodeJSON decodes the response body into dst.
-// Callers must defer res.Body.Close().
 func decodeJSON(t *testing.T, res *http.Response, dst any) {
 	t.Helper()
 	if err := json.NewDecoder(res.Body).Decode(dst); err != nil {
@@ -155,8 +147,6 @@ func decodeJSON(t *testing.T, res *http.Response, dst any) {
 	}
 }
 
-// authHeader returns an Authorization bearer header map.
-// Skips the calling test if TEST_JWT is not set.
 func authHeader(t *testing.T) map[string]string {
 	t.Helper()
 	tok := os.Getenv("TEST_JWT")

@@ -1,3 +1,4 @@
+//go:generate go run go.uber.org/mock/mockgen -destination=../../test/mocks/mock_dynamodb.go -package=mocks github.com/rdevitto86/komodo-forge-sdk-go/aws/dynamodb API
 package db
 
 import (
@@ -8,94 +9,90 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
-	awsdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbTypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/segmentio/ksuid"
 
-	"komodo-customer-api/internal/models"
+	"komodo-accounts-api/internal/models"
 
 	"github.com/rdevitto86/komodo-forge-sdk-go/aws/dynamodb"
 	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 )
 
-var ErrNotFound = dynamodb.ErrNotFound
-var ErrAlreadyExists = errors.New("already exists")
-var ErrPasskeyAlreadyExists = errors.New("passkey already exists")
-var ErrPasskeySignCountRegression = errors.New("passkey sign count regression")
-var ErrAccountNotPendingDeletion = errors.New("account not pending deletion")
-var ErrVersionConflict = errors.New("version conflict")
-
-type ddbRawAPI interface {
-	TransactWriteItems(ctx context.Context, params *awsdynamodb.TransactWriteItemsInput, optFns ...func(*awsdynamodb.Options)) (*awsdynamodb.TransactWriteItemsOutput, error)
-	BatchGetItem(ctx context.Context, params *awsdynamodb.BatchGetItemInput, optFns ...func(*awsdynamodb.Options)) (*awsdynamodb.BatchGetItemOutput, error)
-}
+var (
+	ErrNotFound                   = dynamodb.ErrNotFound
+	ErrAlreadyExists              = errors.New("already exists")
+	ErrPasskeyAlreadyExists       = errors.New("passkey already exists")
+	ErrPasskeySignCountRegression = errors.New("passkey sign count regression")
+	ErrAccountNotPendingDeletion  = errors.New("account not pending deletion")
+	ErrVersionConflict            = errors.New("version conflict")
+)
 
 type Repo struct {
-	client    *dynamodb.Client
-	rawClient ddbRawAPI
-	table     string
+	client dynamodb.API
+	table  string
 }
 
-func New(client *dynamodb.Client, rawClient ddbRawAPI, table string) *Repo {
-	return &Repo{client: client, rawClient: rawClient, table: table}
+func New(client dynamodb.API, table string) *Repo {
+	return &Repo{client: client, table: table}
 }
 
-type customerRecord struct {
-	PK            string    `dynamodbav:"PK"`
-	SK            string    `dynamodbav:"SK"`
-	CustomerID    string    `dynamodbav:"customer_id"`
-	Username      string    `dynamodbav:"username"`
-	Email         string    `dynamodbav:"email"`
-	Phone         string    `dynamodbav:"phone"`
-	FirstName     string    `dynamodbav:"first_name"`
-	LastName      string    `dynamodbav:"last_name"`
-	AvatarURL     string    `dynamodbav:"avatar_url"`
-	PasswordHash  string    `dynamodbav:"password_hash"`
-	AuthMethods   []string  `dynamodbav:"auth_methods"`
-	GSI1PK        string    `dynamodbav:"GSI1PK"`
-	GSI1SK        string    `dynamodbav:"GSI1SK"`
-	CreatedAt     time.Time `dynamodbav:"created_at"`
-	UpdatedAt     time.Time `dynamodbav:"updated_at"`
+type accountRecord struct {
+	PK           string    `dynamodbav:"PK"`
+	SK           string    `dynamodbav:"SK"`
+	AccountID    string    `dynamodbav:"account_id"`
+	Username     string    `dynamodbav:"username"`
+	Email        string    `dynamodbav:"email"`
+	Phone        string    `dynamodbav:"phone"`
+	FirstName    string    `dynamodbav:"first_name"`
+	LastName     string    `dynamodbav:"last_name"`
+	AvatarURL    string    `dynamodbav:"avatar_url"`
+	PasswordHash string    `dynamodbav:"password_hash"`
+	AuthMethods  []string  `dynamodbav:"auth_methods"`
+	GSI1PK       string    `dynamodbav:"GSI1PK"`
+	GSI1SK       string    `dynamodbav:"GSI1SK"`
+	CreatedAt    time.Time `dynamodbav:"created_at"`
+	UpdatedAt    time.Time `dynamodbav:"updated_at"`
 }
 
-func (r *customerRecord) toModel() *models.User {
-	return &models.User{
-		CustomerID:    r.CustomerID,
-		Username:      r.Username,
-		Email:         r.Email,
-		Phone:         r.Phone,
-		FirstName:     r.FirstName,
-		LastName:      r.LastName,
-		AvatarURL:     r.AvatarURL,
-		AuthMethods:   r.AuthMethods,
-		CreatedAt:     r.CreatedAt,
-		UpdatedAt:     r.UpdatedAt,
+func (r *accountRecord) toModel() *models.Account {
+	return &models.Account{
+		AccountID:   r.AccountID,
+		Username:    r.Username,
+		Email:       r.Email,
+		Phone:       r.Phone,
+		FirstName:   r.FirstName,
+		LastName:    r.LastName,
+		AvatarURL:   r.AvatarURL,
+		AuthMethods: r.AuthMethods,
+		CreatedAt:   r.CreatedAt,
+		UpdatedAt:   r.UpdatedAt,
 	}
 }
 
-func (r *Repo) GetUser(ctx context.Context, userID string) (*models.User, error) {
-	key, err := r.client.BuildKey("PK", "CUSTOMER#"+userID, "SK", "PROFILE")
+// DB client method that retrieves an account by its ID.
+func (r *Repo) GetAccount(ctx context.Context, accountID string) (*models.Account, error) {
+	key, err := r.client.BuildKey("PK", "ACCOUNT#"+accountID, "SK", "PROFILE")
 	if err != nil {
-		return nil, fmt.Errorf("failed to build user key: %w", err)
+		return nil, fmt.Errorf("failed to build account key: %w", err)
 	}
 
-	var record customerRecord
+	var record accountRecord
 	if err := r.client.GetItemAs(ctx, r.table, key, false, nil, &record); err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+		return nil, fmt.Errorf("failed to get account: %w", err)
 	}
 	return record.toModel(), nil
 }
 
 type gsiEmailResult struct {
-	CustomerID string `dynamodbav:"customer_id"`
-	PK         string `dynamodbav:"PK"`
+	AccountID string `dynamodbav:"account_id"`
+	PK        string `dynamodbav:"PK"`
 }
 
-func (r *Repo) resolveCustomerIDByEmail(ctx context.Context, email string) (string, error) {
+// DB client private method that queries the GSI1 index to resolve an account ID by email.
+func (r *Repo) resolveAccountIDByEmail(ctx context.Context, email string) (string, error) {
 	gsiName := "GSI1"
 	var results []gsiEmailResult
-	if err := r.client.QueryAllAs(ctx, dynamodb.QueryInput{
+	var query = dynamodb.QueryInput{
 		TableName:              r.table,
 		IndexName:              &gsiName,
 		KeyConditionExpression: "GSI1PK = :pk AND GSI1SK = :sk",
@@ -103,98 +100,96 @@ func (r *Repo) resolveCustomerIDByEmail(ctx context.Context, email string) (stri
 			":pk": &ddbTypes.AttributeValueMemberS{Value: "EMAIL#" + strings.ToLower(email)},
 			":sk": &ddbTypes.AttributeValueMemberS{Value: "PROFILE"},
 		},
-	}, &results); err != nil {
-		return "", fmt.Errorf("failed to query user by email: %w", err)
+	}
+
+	if err := r.client.QueryAllAs(ctx, query, &results); err != nil {
+		return "", fmt.Errorf("failed to query account by email: %w", err)
 	}
 	if len(results) == 0 {
-		return "", fmt.Errorf("user not found: %w", ErrNotFound)
+		return "", fmt.Errorf("account not found: %w", ErrNotFound)
 	}
-	return results[0].CustomerID, nil
+	return results[0].AccountID, nil
 }
 
-func (r *Repo) getUserByEmail(ctx context.Context, email string) (*customerRecord, error) {
-	customerID, err := r.resolveCustomerIDByEmail(ctx, email)
+// DB client private method that retrieves an account by its email.
+func (r *Repo) getAccountByEmail(ctx context.Context, email string) (*accountRecord, error) {
+	accountID, err := r.resolveAccountIDByEmail(ctx, email)
 	if err != nil {
 		return nil, err
 	}
-	key, err := r.client.BuildKey("PK", "CUSTOMER#"+customerID, "SK", "PROFILE")
+	key, err := r.client.BuildKey("PK", "ACCOUNT#"+accountID, "SK", "PROFILE")
 	if err != nil {
 		return nil, fmt.Errorf("failed to build email lookup key: %w", err)
 	}
-	var record customerRecord
+
+	var record accountRecord
 	if err := r.client.GetItemAs(ctx, r.table, key, false, nil, &record); err != nil {
-		return nil, fmt.Errorf("failed to get user by email: %w", err)
+		return nil, fmt.Errorf("failed to get account by email: %w", err)
 	}
 	return &record, nil
 }
 
-func (r *Repo) GetUserCredentialsByEmail(ctx context.Context, email string) (*models.CredentialsResponse, error) {
-	customerID, err := r.resolveCustomerIDByEmail(ctx, email)
+type credentialsBatchItem struct {
+	SK            string   `dynamodbav:"SK"`
+	AccountID     string   `dynamodbav:"account_id"`
+	PasswordHash  string   `dynamodbav:"password_hash"`
+	AuthMethods   []string `dynamodbav:"auth_methods"`
+	EmailVerified bool     `dynamodbav:"email_verified"`
+}
+
+// DB client method that retrieves account credentials by email.
+func (r *Repo) GetAccountCredentialsByEmail(ctx context.Context, email string) (*models.CredentialsResponse, error) {
+	accountID, err := r.resolveAccountIDByEmail(ctx, email)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user credentials: %w", err)
+		return nil, fmt.Errorf("failed to get account credentials: %w", err)
 	}
 
-	pk := "CUSTOMER#" + customerID
-	batchOut, err := r.rawClient.BatchGetItem(ctx, &awsdynamodb.BatchGetItemInput{
-		RequestItems: map[string]ddbTypes.KeysAndAttributes{
-			r.table: {
-				Keys: []map[string]ddbTypes.AttributeValue{
-					{
-						"PK": &ddbTypes.AttributeValueMemberS{Value: pk},
-						"SK": &ddbTypes.AttributeValueMemberS{Value: "PROFILE"},
-					},
-					{
-						"PK": &ddbTypes.AttributeValueMemberS{Value: pk},
-						"SK": &ddbTypes.AttributeValueMemberS{Value: "SETTINGS"},
-					},
-				},
-			},
+	pk := "ACCOUNT#" + accountID
+	keys := []map[string]ddbTypes.AttributeValue{
+		{
+			"PK": &ddbTypes.AttributeValueMemberS{Value: pk},
+			"SK": &ddbTypes.AttributeValueMemberS{Value: "PROFILE"},
 		},
-	})
-	if err != nil {
+		{
+			"PK": &ddbTypes.AttributeValueMemberS{Value: pk},
+			"SK": &ddbTypes.AttributeValueMemberS{Value: "SETTINGS"},
+		},
+	}
+
+	var items []credentialsBatchItem
+	if err := r.client.BatchGetItemAs(ctx, r.table, keys, &items); err != nil {
 		return nil, fmt.Errorf("failed to batch get credentials: %w", err)
 	}
 
-	var profile customerRecord
-	var settings settingsRecord
+	var profile credentialsBatchItem
+	var settings credentialsBatchItem
 	profileFound := false
 
-	for _, item := range batchOut.Responses[r.table] {
-		skAttr, ok := item["SK"]
-		if !ok {
-			continue
-		}
-		skVal, ok := skAttr.(*ddbTypes.AttributeValueMemberS)
-		if !ok {
-			continue
-		}
-		switch skVal.Value {
+	for _, item := range items {
+		switch item.SK {
 		case "PROFILE":
-			if err := attributevalue.UnmarshalMap(item, &profile); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal credentials profile: %w", err)
-			}
+			profile = item
 			profileFound = true
 		case "SETTINGS":
-			if err := attributevalue.UnmarshalMap(item, &settings); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal credentials settings: %w", err)
-			}
+			settings = item
 		}
 	}
 
 	if !profileFound {
-		return nil, fmt.Errorf("user not found: %w", ErrNotFound)
+		return nil, fmt.Errorf("account not found: %w", ErrNotFound)
 	}
 
 	return &models.CredentialsResponse{
-		CustomerID:    profile.CustomerID,
+		AccountID:     profile.AccountID,
 		PasswordHash:  profile.PasswordHash,
 		EmailVerified: settings.EmailVerified,
 		AuthMethods:   profile.AuthMethods,
 	}, nil
 }
 
-func (r *Repo) UpdateUserCredentials(ctx context.Context, userID string, req *models.UpdateCredentialsRequest) error {
-	key, err := r.client.BuildKey("PK", "CUSTOMER#"+userID, "SK", "PROFILE")
+// DB client method that updates account credentials.
+func (r *Repo) UpdateAccountCredentials(ctx context.Context, accountID string, req *models.UpdateCredentialsRequest) error {
+	key, err := r.client.BuildKey("PK", "ACCOUNT#"+accountID, "SK", "PROFILE")
 	if err != nil {
 		return fmt.Errorf("failed to build credentials key: %w", err)
 	}
@@ -241,15 +236,16 @@ func (r *Repo) UpdateUserCredentials(ctx context.Context, userID string, req *mo
 	return nil
 }
 
-func (r *Repo) GetUserExistsByEmail(ctx context.Context, email string) (*models.UserExistsResponse, error) {
-	record, err := r.getUserByEmail(ctx, email)
+// DB client method that checks if an account exists by email.
+func (r *Repo) GetAccountExistsByEmail(ctx context.Context, email string) (*models.AccountExistsResponse, error) {
+	record, err := r.getAccountByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return &models.UserExistsResponse{Exists: false, AuthMethods: []string{}}, nil
+			return &models.AccountExistsResponse{Exists: false, AuthMethods: []string{}}, nil
 		}
-		return nil, fmt.Errorf("failed to check user exists: %w", err)
+		return nil, fmt.Errorf("failed to check account exists: %w", err)
 	}
-	return &models.UserExistsResponse{
+	return &models.AccountExistsResponse{
 		Exists:      true,
 		AuthMethods: record.AuthMethods,
 	}, nil
@@ -261,124 +257,122 @@ type settingsDefaultRecord struct {
 	Status        string    `dynamodbav:"status"`
 	EmailVerified bool      `dynamodbav:"email_verified"`
 	PhoneVerified bool      `dynamodbav:"phone_verified"`
+	Version       int       `dynamodbav:"version"`
 	CreatedAt     time.Time `dynamodbav:"created_at"`
 	UpdatedAt     time.Time `dynamodbav:"updated_at"`
 }
 
-func (r *Repo) CreateUser(ctx context.Context, user *models.User) error {
-	profileRec := customerRecord{
-		PK:            "CUSTOMER#" + user.CustomerID,
-		SK:            "PROFILE",
-		GSI1PK:        "EMAIL#" + strings.ToLower(user.Email),
-		GSI1SK:        "PROFILE",
-		CustomerID:    user.CustomerID,
-		Username:      user.Username,
-		Email:         strings.ToLower(user.Email),
-		Phone:         user.Phone,
-		FirstName:     user.FirstName,
-		LastName:      user.LastName,
-		AvatarURL:     user.AvatarURL,
-		PasswordHash:  user.PasswordHash,
-		AuthMethods:   user.AuthMethods,
-		CreatedAt:     user.CreatedAt,
-		UpdatedAt:     user.UpdatedAt,
+// DB client method that creates a new account.
+func (r *Repo) CreateAccount(ctx context.Context, account *models.Account) error {
+	profileRec := accountRecord{
+		PK:           "ACCOUNT#" + account.AccountID,
+		SK:           "PROFILE",
+		GSI1PK:       "EMAIL#" + strings.ToLower(account.Email),
+		GSI1SK:       "PROFILE",
+		AccountID:    account.AccountID,
+		Username:     account.Username,
+		Email:        strings.ToLower(account.Email),
+		Phone:        account.Phone,
+		FirstName:    account.FirstName,
+		LastName:     account.LastName,
+		AvatarURL:    account.AvatarURL,
+		PasswordHash: account.PasswordHash,
+		AuthMethods:  account.AuthMethods,
+		CreatedAt:    account.CreatedAt,
+		UpdatedAt:    account.UpdatedAt,
 	}
-	profileItem, err := attributevalue.MarshalMap(profileRec)
-	if err != nil {
-		return fmt.Errorf("failed to marshal profile for create: %w", err)
-	}
-
 	settingsRec := settingsDefaultRecord{
-		PK:        "CUSTOMER#" + user.CustomerID,
+		PK:        "ACCOUNT#" + account.AccountID,
 		SK:        "SETTINGS",
 		Status:    "active",
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
+		Version:   0,
+		CreatedAt: account.CreatedAt,
+		UpdatedAt: account.UpdatedAt,
 	}
-	settingsItem, err := attributevalue.MarshalMap(settingsRec)
-	if err != nil {
-		return fmt.Errorf("failed to marshal settings for create: %w", err)
-	}
-	settingsItem["version"] = &ddbTypes.AttributeValueMemberN{Value: "0"}
 
 	condition := aws.String("attribute_not_exists(SK)")
-	_, err = r.rawClient.TransactWriteItems(ctx, &awsdynamodb.TransactWriteItemsInput{
-		TransactItems: []ddbTypes.TransactWriteItem{
-			{
-				Put: &ddbTypes.Put{
-					TableName:           aws.String(r.table),
-					Item:                profileItem,
-					ConditionExpression: condition,
-				},
-			},
-			{
-				Put: &ddbTypes.Put{
-					TableName:           aws.String(r.table),
-					Item:                settingsItem,
-					ConditionExpression: condition,
-				},
-			},
-		},
+	err := r.client.TransactWrite(ctx, []dynamodb.TransactItem{
+		{Table: r.table, Op: dynamodb.TransactPut, Item: profileRec, Condition: condition},
+		{Table: r.table, Op: dynamodb.TransactPut, Item: settingsRec, Condition: condition},
 	})
 	if err != nil {
-		var txErr *ddbTypes.TransactionCanceledException
-		if errors.As(err, &txErr) {
-			return fmt.Errorf("failed to create user: %w", ErrAlreadyExists)
+		if _, ok := dynamodb.ConditionFailureIndex(err); ok {
+			return fmt.Errorf("failed to create account: %w", ErrAlreadyExists)
 		}
-		return fmt.Errorf("failed to create user: %w", err)
+		return fmt.Errorf("failed to create account: %w", err)
 	}
 	return nil
 }
 
-func (r *Repo) UpdateUser(ctx context.Context, userID string, update *models.User) (*models.User, error) {
-	key, err := r.client.BuildKey("PK", "CUSTOMER#"+userID, "SK", "PROFILE")
+// DB client method that updates an existing account.
+func (r *Repo) UpdateAccount(ctx context.Context, accountID string, update *models.UpdateProfileRequest) (*models.Account, error) {
+	key, err := r.client.BuildKey("PK", "ACCOUNT#"+accountID, "SK", "PROFILE")
 	if err != nil {
 		return nil, fmt.Errorf("failed to build update key: %w", err)
 	}
 
-	var existing customerRecord
-	if err := r.client.GetItemAs(ctx, r.table, key, false, nil, &existing); err != nil {
-		return nil, fmt.Errorf("failed to get existing user: %w", err)
+	setClauses := []string{}
+	exprValues := map[string]ddbTypes.AttributeValue{}
+	exprNames := map[string]string{}
+
+	if update.Phone != nil {
+		setClauses = append(setClauses, "#ph = :ph")
+		exprValues[":ph"] = &ddbTypes.AttributeValueMemberS{Value: *update.Phone}
+		exprNames["#ph"] = "phone"
+	}
+	if update.FirstName != nil {
+		setClauses = append(setClauses, "#fn = :fn")
+		exprValues[":fn"] = &ddbTypes.AttributeValueMemberS{Value: *update.FirstName}
+		exprNames["#fn"] = "first_name"
+	}
+	if update.LastName != nil {
+		setClauses = append(setClauses, "#ln = :ln")
+		exprValues[":ln"] = &ddbTypes.AttributeValueMemberS{Value: *update.LastName}
+		exprNames["#ln"] = "last_name"
+	}
+	if update.AvatarURL != nil {
+		setClauses = append(setClauses, "#av = :av")
+		exprValues[":av"] = &ddbTypes.AttributeValueMemberS{Value: *update.AvatarURL}
+		exprNames["#av"] = "avatar_url"
 	}
 
-	if update.Phone != "" {
-		existing.Phone = update.Phone
-	}
-	if update.FirstName != "" {
-		existing.FirstName = update.FirstName
-	}
-	if update.LastName != "" {
-		existing.LastName = update.LastName
-	}
-	if update.AvatarURL != "" {
-		existing.AvatarURL = update.AvatarURL
-	}
-	existing.UpdatedAt = update.UpdatedAt
+	setClauses = append(setClauses, "#ua = :ua")
+	exprValues[":ua"] = &ddbTypes.AttributeValueMemberS{Value: time.Now().UTC().Format(time.RFC3339Nano)}
+	exprNames["#ua"] = "updated_at"
 
-	if err := r.client.WriteItemFrom(ctx, r.table, existing, false, nil, nil); err != nil {
-		return nil, fmt.Errorf("failed to write user update: %w", err)
+	updateExpr := "SET " + strings.Join(setClauses, ", ")
+	condition := "attribute_exists(SK)"
+
+	var updated accountRecord
+	if err := r.client.UpdateItemAs(ctx, r.table, key, updateExpr, exprValues, exprNames, &condition, &updated); err != nil {
+		var conditionalCheckErr *ddbTypes.ConditionalCheckFailedException
+		if errors.As(err, &conditionalCheckErr) {
+			return nil, fmt.Errorf("account not found: %w", ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to update account: %w", err)
 	}
-	return existing.toModel(), nil
+	return updated.toModel(), nil
 }
 
-func (r *Repo) DeleteUser(ctx context.Context, userID string) error {
+// DB client method that deletes an existing account.
+func (r *Repo) DeleteAccount(ctx context.Context, accountID string) error {
 	items, err := r.client.QueryAll(ctx, dynamodb.QueryInput{
 		TableName:              r.table,
 		KeyConditionExpression: "PK = :pk",
 		ExpressionValues: map[string]ddbTypes.AttributeValue{
-			":pk": &ddbTypes.AttributeValueMemberS{Value: "CUSTOMER#" + userID},
+			":pk": &ddbTypes.AttributeValueMemberS{Value: "ACCOUNT#" + accountID},
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to query user items: %w", err)
+		return fmt.Errorf("failed to query account items: %w", err)
 	}
 	if len(items) == 0 {
 		return nil
 	}
 
 	if len(items) > 100 {
-		logger.Warn("large user delete; processing in chunks",
-			logger.Attr("customer_id", userID),
+		logger.Warn("large account delete; processing in chunks",
+			logger.Attr("account_id", accountID),
 			logger.Attr("item_count", len(items)),
 		)
 	}
@@ -390,20 +384,19 @@ func (r *Repo) DeleteUser(ctx context.Context, userID string) error {
 			end = len(items)
 		}
 
-		transactItems := make([]ddbTypes.TransactWriteItem, 0, end-start)
+		transactItems := make([]dynamodb.TransactItem, 0, end-start)
 		for _, item := range items[start:end] {
 			pk, hasPK := item["PK"]
 			sk, hasSK := item["SK"]
 			if !hasPK || !hasSK {
 				continue
 			}
-			transactItems = append(transactItems, ddbTypes.TransactWriteItem{
-				Delete: &ddbTypes.Delete{
-					TableName: aws.String(r.table),
-					Key: map[string]ddbTypes.AttributeValue{
-						"PK": pk,
-						"SK": sk,
-					},
+			transactItems = append(transactItems, dynamodb.TransactItem{
+				Table: r.table,
+				Op:    dynamodb.TransactDelete,
+				Key: map[string]ddbTypes.AttributeValue{
+					"PK": pk,
+					"SK": sk,
 				},
 			})
 		}
@@ -412,10 +405,8 @@ func (r *Repo) DeleteUser(ctx context.Context, userID string) error {
 			continue
 		}
 
-		if _, err := r.rawClient.TransactWriteItems(ctx, &awsdynamodb.TransactWriteItemsInput{
-			TransactItems: transactItems,
-		}); err != nil {
-			return fmt.Errorf("failed to delete user: %w", err)
+		if err := r.client.TransactWrite(ctx, transactItems); err != nil {
+			return fmt.Errorf("failed to delete account: %w", err)
 		}
 	}
 	return nil
@@ -427,28 +418,38 @@ type addressRecord struct {
 	models.Address
 }
 
-func addrPK(userID string) string { return "CUSTOMER#" + userID }
+// Helper function that returns a formatted partition key for addresses
+func addrPK(accountID string) string { return "ACCOUNT#" + accountID }
 
+// Helper function that returns a formatted sort key for addresses
 func addrSK(addressID string) string { return "ADDR#" + addressID }
 
-func (r *Repo) CreateAddress(ctx context.Context, userID string, addr *models.Address) error {
+// DB client method that creates a new address for an account.
+func (r *Repo) CreateAddress(ctx context.Context, accountID string, addr *models.Address) error {
 	if addr.AddressID == "" {
 		addr.AddressID = "addr_" + ksuid.New().String()
 	}
 
 	record := addressRecord{
-		PK:      addrPK(userID),
+		PK:      addrPK(accountID),
 		SK:      addrSK(addr.AddressID),
 		Address: *addr,
 	}
-	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, nil); err != nil {
+
+	condition := "attribute_not_exists(SK)"
+	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, &condition); err != nil {
+		var conditionalCheckErr *ddbTypes.ConditionalCheckFailedException
+		if errors.As(err, &conditionalCheckErr) {
+			return fmt.Errorf("failed to create address: %w", ErrAlreadyExists)
+		}
 		return fmt.Errorf("failed to create address: %w", err)
 	}
 	return nil
 }
 
-func (r *Repo) GetAddress(ctx context.Context, userID, addressID string) (*models.Address, error) {
-	key, err := r.client.BuildKey("PK", addrPK(userID), "SK", addrSK(addressID))
+// DB client method that retrieves an address for an account.
+func (r *Repo) GetAddress(ctx context.Context, accountID, addressID string) (*models.Address, error) {
+	key, err := r.client.BuildKey("PK", addrPK(accountID), "SK", addrSK(addressID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build address key: %w", err)
 	}
@@ -461,18 +462,20 @@ func (r *Repo) GetAddress(ctx context.Context, userID, addressID string) (*model
 	return &addr, nil
 }
 
-func (r *Repo) GetUserAddresses(ctx context.Context, userID string) ([]models.Address, error) {
+// DB client method that retrieves all addresses for an account.
+func (r *Repo) GetAccountAddresses(ctx context.Context, accountID string) ([]models.Address, error) {
 	var records []addressRecord
-	if _, err := r.client.QueryAs(ctx, dynamodb.QueryInput{
+	var query = dynamodb.QueryInput{
 		TableName:              r.table,
 		KeyConditionExpression: "PK = :pk AND begins_with(SK, :skPrefix)",
 		ExpressionValues: map[string]ddbTypes.AttributeValue{
-			":pk":       &ddbTypes.AttributeValueMemberS{Value: addrPK(userID)},
+			":pk":       &ddbTypes.AttributeValueMemberS{Value: addrPK(accountID)},
 			":skPrefix": &ddbTypes.AttributeValueMemberS{Value: "ADDR#"},
 		},
 		Limit: aws.Int32(100),
-	}, &records); err != nil {
-		return nil, fmt.Errorf("failed to get user addresses: %w", err)
+	}
+	if _, err := r.client.QueryAs(ctx, query, &records); err != nil {
+		return nil, fmt.Errorf("failed to get account addresses: %w", err)
 	}
 
 	addrs := make([]models.Address, len(records))
@@ -482,8 +485,9 @@ func (r *Repo) GetUserAddresses(ctx context.Context, userID string) ([]models.Ad
 	return addrs, nil
 }
 
-func (r *Repo) UpdateAddress(ctx context.Context, userID, addressID string, req *models.UpdateAddressRequest) error {
-	key, err := r.client.BuildKey("PK", addrPK(userID), "SK", addrSK(addressID))
+// DB client method that updates an address for an account.
+func (r *Repo) UpdateAddress(ctx context.Context, accountID, addressID string, req *models.UpdateAddressRequest) error {
+	key, err := r.client.BuildKey("PK", addrPK(accountID), "SK", addrSK(addressID))
 	if err != nil {
 		return fmt.Errorf("failed to build address key: %w", err)
 	}
@@ -549,8 +553,9 @@ func (r *Repo) UpdateAddress(ctx context.Context, userID, addressID string, req 
 	return nil
 }
 
-func (r *Repo) DeleteAddress(ctx context.Context, userID, addressID string) error {
-	key, err := r.client.BuildKey("PK", addrPK(userID), "SK", addrSK(addressID))
+// DB client method that deletes an address for an account.
+func (r *Repo) DeleteAddress(ctx context.Context, accountID, addressID string) error {
+	key, err := r.client.BuildKey("PK", addrPK(accountID), "SK", addrSK(addressID))
 	if err != nil {
 		return fmt.Errorf("failed to build delete address key: %w", err)
 	}
@@ -560,99 +565,86 @@ func (r *Repo) DeleteAddress(ctx context.Context, userID, addressID string) erro
 	return nil
 }
 
-func (r *Repo) SetAddressDefault(ctx context.Context, userID, addressID string) error {
-	pk := addrPK(userID)
-	targetSK := addrSK(addressID)
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+type defaultFlagRecord struct {
+	SK        string `dynamodbav:"SK"`
+	IsDefault bool   `dynamodbav:"is_default"`
+}
 
-	type addrMinRecord struct {
-		PK        string `dynamodbav:"PK"`
-		SK        string `dynamodbav:"SK"`
-		IsDefault bool   `dynamodbav:"is_default"`
-	}
-
-	filterExpr := aws.String("#isd = :true AND SK <> :targetSK")
-	var current []addrMinRecord
-	if _, err := r.client.QueryAs(ctx, dynamodb.QueryInput{
+// Helper function that demotes existing default addresses and promotes a new one.
+func (r *Repo) demoteAndPromoteDefault(ctx context.Context, pk, skPrefix, targetSK string) error {
+	var candidates []defaultFlagRecord
+	var query = dynamodb.QueryInput{
 		TableName:              r.table,
 		KeyConditionExpression: "PK = :pk AND begins_with(SK, :skPrefix)",
-		FilterExpression:       filterExpr,
 		ExpressionValues: map[string]ddbTypes.AttributeValue{
 			":pk":       &ddbTypes.AttributeValueMemberS{Value: pk},
-			":skPrefix": &ddbTypes.AttributeValueMemberS{Value: "ADDR#"},
-			":true":     &ddbTypes.AttributeValueMemberBOOL{Value: true},
-			":targetSK": &ddbTypes.AttributeValueMemberS{Value: targetSK},
+			":skPrefix": &ddbTypes.AttributeValueMemberS{Value: skPrefix},
 		},
-		ExpressionNames: map[string]string{"#isd": "is_default"},
-		Limit:           aws.Int32(1),
-	}, &current); err != nil {
-		return fmt.Errorf("failed to query current default address: %w", err)
 	}
 
-	if len(current) > 0 {
-		oldSK := current[0].SK
-		_, err := r.rawClient.TransactWriteItems(ctx, &awsdynamodb.TransactWriteItemsInput{
-			TransactItems: []ddbTypes.TransactWriteItem{
-				{
-					Update: &ddbTypes.Update{
-						TableName: aws.String(r.table),
-						Key: map[string]ddbTypes.AttributeValue{
-							"PK": &ddbTypes.AttributeValueMemberS{Value: pk},
-							"SK": &ddbTypes.AttributeValueMemberS{Value: oldSK},
-						},
-						UpdateExpression:    aws.String("SET #isd = :false, #ua = :now"),
-						ConditionExpression: aws.String("attribute_exists(SK)"),
-						ExpressionAttributeNames: map[string]string{
-							"#isd": "is_default",
-							"#ua":  "updated_at",
-						},
-						ExpressionAttributeValues: map[string]ddbTypes.AttributeValue{
-							":false": &ddbTypes.AttributeValueMemberBOOL{Value: false},
-							":now":   &ddbTypes.AttributeValueMemberS{Value: now},
-						},
-					},
-				},
-				{
-					Update: &ddbTypes.Update{
-						TableName: aws.String(r.table),
-						Key: map[string]ddbTypes.AttributeValue{
-							"PK": &ddbTypes.AttributeValueMemberS{Value: pk},
-							"SK": &ddbTypes.AttributeValueMemberS{Value: targetSK},
-						},
-						UpdateExpression:    aws.String("SET #isd = :true, #ua = :now"),
-						ConditionExpression: aws.String("attribute_exists(SK)"),
-						ExpressionAttributeNames: map[string]string{
-							"#isd": "is_default",
-							"#ua":  "updated_at",
-						},
-						ExpressionAttributeValues: map[string]ddbTypes.AttributeValue{
-							":true": &ddbTypes.AttributeValueMemberBOOL{Value: true},
-							":now":  &ddbTypes.AttributeValueMemberS{Value: now},
-						},
-					},
-				},
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to set address default: %w", err)
+	if _, err := r.client.QueryAs(ctx, query, &candidates); err != nil {
+		return fmt.Errorf("failed to query default candidates: %w", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	condition := aws.String("attribute_exists(SK)")
+	transactItems := make([]dynamodb.TransactItem, 0, len(candidates)+1)
+
+	for _, c := range candidates {
+		if c.SK == targetSK || !c.IsDefault {
+			continue
 		}
-		return nil
+
+		transactItems = append(transactItems, dynamodb.TransactItem{
+			Table: r.table,
+			Op:    dynamodb.TransactUpdate,
+			Key: map[string]ddbTypes.AttributeValue{
+				"PK": &ddbTypes.AttributeValueMemberS{Value: pk},
+				"SK": &ddbTypes.AttributeValueMemberS{Value: c.SK},
+			},
+			UpdateExpr: "SET #isd = :false, #ua = :now",
+			ExprNames: map[string]string{
+				"#isd": "is_default",
+				"#ua":  "updated_at",
+			},
+			ExprValues: map[string]ddbTypes.AttributeValue{
+				":false": &ddbTypes.AttributeValueMemberBOOL{Value: false},
+				":now":   &ddbTypes.AttributeValueMemberS{Value: now},
+			},
+			Condition: condition,
+		})
 	}
 
-	key, err := r.client.BuildKey("PK", pk, "SK", targetSK)
-	if err != nil {
-		return fmt.Errorf("failed to build set-default address key: %w", err)
-	}
-	condition := "attribute_exists(SK)"
-	if _, err := r.client.UpdateItem(ctx, r.table, key,
-		"SET #isDefault = :true, #ua = :now",
-		map[string]ddbTypes.AttributeValue{
+	transactItems = append(transactItems, dynamodb.TransactItem{
+		Table: r.table,
+		Op:    dynamodb.TransactUpdate,
+		Key: map[string]ddbTypes.AttributeValue{
+			"PK": &ddbTypes.AttributeValueMemberS{Value: pk},
+			"SK": &ddbTypes.AttributeValueMemberS{Value: targetSK},
+		},
+		UpdateExpr: "SET #isd = :true, #ua = :now",
+		ExprNames: map[string]string{
+			"#isd": "is_default",
+			"#ua":  "updated_at",
+		},
+		ExprValues: map[string]ddbTypes.AttributeValue{
 			":true": &ddbTypes.AttributeValueMemberBOOL{Value: true},
 			":now":  &ddbTypes.AttributeValueMemberS{Value: now},
 		},
-		map[string]string{"#isDefault": "is_default", "#ua": "updated_at"},
-		&condition,
-	); err != nil {
+		Condition: condition,
+	})
+
+	if err := r.client.TransactWrite(ctx, transactItems); err != nil {
+		if _, ok := dynamodb.ConditionFailureIndex(err); ok {
+			return fmt.Errorf("default target item not found: %w", ErrNotFound)
+		}
+		return fmt.Errorf("failed to write default state change: %w", err)
+	}
+	return nil
+}
+
+func (r *Repo) SetAddressDefault(ctx context.Context, accountID, addressID string) error {
+	if err := r.demoteAndPromoteDefault(ctx, addrPK(accountID), "ADDR#", addrSK(addressID)); err != nil {
 		return fmt.Errorf("failed to set address default: %w", err)
 	}
 	return nil
@@ -664,28 +656,46 @@ type paymentRecord struct {
 	models.PaymentMethod
 }
 
-func payPK(userID string) string { return "CUSTOMER#" + userID }
+// Helper function that formats the partition key for a payment record.
+func payPK(accountID string) string { return "ACCOUNT#" + accountID }
 
+// Helper function that formats the sort key for a payment record.
 func paySK(paymentID string) string { return "PAY#" + paymentID }
 
-func (r *Repo) UpsertPayment(ctx context.Context, userID string, method *models.PaymentMethod) error {
-	if method.PaymentID == "" {
+// DB client method that upserts a payment method for an account.
+func (r *Repo) UpsertPayment(ctx context.Context, accountID string, method *models.PaymentMethod) error {
+	isCreate := method.PaymentID == ""
+	if isCreate {
 		method.PaymentID = "pay_" + ksuid.New().String()
 	}
 
 	record := paymentRecord{
-		PK:            payPK(userID),
+		PK:            payPK(accountID),
 		SK:            paySK(method.PaymentID),
 		PaymentMethod: *method,
 	}
-	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, nil); err != nil {
+
+	condition := "attribute_exists(SK)"
+	if isCreate {
+		condition = "attribute_not_exists(SK)"
+	}
+
+	if err := r.client.WriteItemFrom(ctx, r.table, record, false, nil, &condition); err != nil {
+		var conditionalCheckErr *ddbTypes.ConditionalCheckFailedException
+		if errors.As(err, &conditionalCheckErr) {
+			if isCreate {
+				return fmt.Errorf("failed to create payment method: %w", ErrAlreadyExists)
+			}
+			return fmt.Errorf("failed to update payment method: %w", ErrNotFound)
+		}
 		return fmt.Errorf("failed to upsert payment: %w", err)
 	}
 	return nil
 }
 
-func (r *Repo) GetPayment(ctx context.Context, userID, paymentID string) (*models.PaymentMethod, error) {
-	key, err := r.client.BuildKey("PK", payPK(userID), "SK", paySK(paymentID))
+// DB client method that retrieves a payment method for an account.
+func (r *Repo) GetPayment(ctx context.Context, accountID, paymentID string) (*models.PaymentMethod, error) {
+	key, err := r.client.BuildKey("PK", payPK(accountID), "SK", paySK(paymentID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build payment key: %w", err)
 	}
@@ -700,17 +710,19 @@ func (r *Repo) GetPayment(ctx context.Context, userID, paymentID string) (*model
 	return &pm, nil
 }
 
-func (r *Repo) ListPayments(ctx context.Context, userID string) ([]models.PaymentMethod, error) {
+func (r *Repo) ListPayments(ctx context.Context, accountID string) ([]models.PaymentMethod, error) {
 	var records []paymentRecord
-	if _, err := r.client.QueryAs(ctx, dynamodb.QueryInput{
+	var query = dynamodb.QueryInput{
 		TableName:              r.table,
 		KeyConditionExpression: "PK = :pk AND begins_with(SK, :skPrefix)",
 		ExpressionValues: map[string]ddbTypes.AttributeValue{
-			":pk":       &ddbTypes.AttributeValueMemberS{Value: payPK(userID)},
+			":pk":       &ddbTypes.AttributeValueMemberS{Value: payPK(accountID)},
 			":skPrefix": &ddbTypes.AttributeValueMemberS{Value: "PAY#"},
 		},
 		Limit: aws.Int32(100),
-	}, &records); err != nil {
+	}
+
+	if _, err := r.client.QueryAs(ctx, query, &records); err != nil {
 		return nil, fmt.Errorf("failed to list payments: %w", err)
 	}
 
@@ -723,8 +735,9 @@ func (r *Repo) ListPayments(ctx context.Context, userID string) ([]models.Paymen
 	return methods, nil
 }
 
-func (r *Repo) DeletePayment(ctx context.Context, userID, paymentID string) error {
-	key, err := r.client.BuildKey("PK", payPK(userID), "SK", paySK(paymentID))
+// DB client method that deletes a payment method for an account.
+func (r *Repo) DeletePayment(ctx context.Context, accountID, paymentID string) error {
+	key, err := r.client.BuildKey("PK", payPK(accountID), "SK", paySK(paymentID))
 	if err != nil {
 		return fmt.Errorf("failed to build delete payment key: %w", err)
 	}
@@ -734,99 +747,9 @@ func (r *Repo) DeletePayment(ctx context.Context, userID, paymentID string) erro
 	return nil
 }
 
-func (r *Repo) SetPaymentDefault(ctx context.Context, userID, paymentID string) error {
-	pk := payPK(userID)
-	targetSK := paySK(paymentID)
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-
-	type payMinRecord struct {
-		PK        string `dynamodbav:"PK"`
-		SK        string `dynamodbav:"SK"`
-		IsDefault bool   `dynamodbav:"is_default"`
-	}
-
-	filterExpr := aws.String("#isd = :true AND SK <> :targetSK")
-	var current []payMinRecord
-	if _, err := r.client.QueryAs(ctx, dynamodb.QueryInput{
-		TableName:              r.table,
-		KeyConditionExpression: "PK = :pk AND begins_with(SK, :skPrefix)",
-		FilterExpression:       filterExpr,
-		ExpressionValues: map[string]ddbTypes.AttributeValue{
-			":pk":       &ddbTypes.AttributeValueMemberS{Value: pk},
-			":skPrefix": &ddbTypes.AttributeValueMemberS{Value: "PAY#"},
-			":true":     &ddbTypes.AttributeValueMemberBOOL{Value: true},
-			":targetSK": &ddbTypes.AttributeValueMemberS{Value: targetSK},
-		},
-		ExpressionNames: map[string]string{"#isd": "is_default"},
-		Limit:           aws.Int32(1),
-	}, &current); err != nil {
-		return fmt.Errorf("failed to query current default payment: %w", err)
-	}
-
-	if len(current) > 0 {
-		oldSK := current[0].SK
-		_, err := r.rawClient.TransactWriteItems(ctx, &awsdynamodb.TransactWriteItemsInput{
-			TransactItems: []ddbTypes.TransactWriteItem{
-				{
-					Update: &ddbTypes.Update{
-						TableName: aws.String(r.table),
-						Key: map[string]ddbTypes.AttributeValue{
-							"PK": &ddbTypes.AttributeValueMemberS{Value: pk},
-							"SK": &ddbTypes.AttributeValueMemberS{Value: oldSK},
-						},
-						UpdateExpression:    aws.String("SET #isd = :false, #ua = :now"),
-						ConditionExpression: aws.String("attribute_exists(SK)"),
-						ExpressionAttributeNames: map[string]string{
-							"#isd": "is_default",
-							"#ua":  "updated_at",
-						},
-						ExpressionAttributeValues: map[string]ddbTypes.AttributeValue{
-							":false": &ddbTypes.AttributeValueMemberBOOL{Value: false},
-							":now":   &ddbTypes.AttributeValueMemberS{Value: now},
-						},
-					},
-				},
-				{
-					Update: &ddbTypes.Update{
-						TableName: aws.String(r.table),
-						Key: map[string]ddbTypes.AttributeValue{
-							"PK": &ddbTypes.AttributeValueMemberS{Value: pk},
-							"SK": &ddbTypes.AttributeValueMemberS{Value: targetSK},
-						},
-						UpdateExpression:    aws.String("SET #isd = :true, #ua = :now"),
-						ConditionExpression: aws.String("attribute_exists(SK)"),
-						ExpressionAttributeNames: map[string]string{
-							"#isd": "is_default",
-							"#ua":  "updated_at",
-						},
-						ExpressionAttributeValues: map[string]ddbTypes.AttributeValue{
-							":true": &ddbTypes.AttributeValueMemberBOOL{Value: true},
-							":now":  &ddbTypes.AttributeValueMemberS{Value: now},
-						},
-					},
-				},
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to set payment default: %w", err)
-		}
-		return nil
-	}
-
-	key, err := r.client.BuildKey("PK", pk, "SK", targetSK)
-	if err != nil {
-		return fmt.Errorf("failed to build set-default payment key: %w", err)
-	}
-	condition := "attribute_exists(SK)"
-	if _, err := r.client.UpdateItem(ctx, r.table, key,
-		"SET #isDefault = :true, #ua = :now",
-		map[string]ddbTypes.AttributeValue{
-			":true": &ddbTypes.AttributeValueMemberBOOL{Value: true},
-			":now":  &ddbTypes.AttributeValueMemberS{Value: now},
-		},
-		map[string]string{"#isDefault": "is_default", "#ua": "updated_at"},
-		&condition,
-	); err != nil {
+// DB client method that sets a payment method as default for an account.
+func (r *Repo) SetPaymentDefault(ctx context.Context, accountID, paymentID string) error {
+	if err := r.demoteAndPromoteDefault(ctx, payPK(accountID), "PAY#", paySK(paymentID)); err != nil {
 		return fmt.Errorf("failed to set payment default: %w", err)
 	}
 	return nil
@@ -838,10 +761,12 @@ type prefsRecord struct {
 	models.Preferences
 }
 
-func prefsPK(userID string) string { return "CUSTOMER#" + userID }
+// Helper function that formats the partition key for a preferences record.
+func prefsPK(accountID string) string { return "ACCOUNT#" + accountID }
 
-func (r *Repo) GetUserPreferences(ctx context.Context, userID string) (*models.Preferences, error) {
-	key, err := r.client.BuildKey("PK", prefsPK(userID), "SK", "PREFS")
+// DB client method that retrieves account preferences.
+func (r *Repo) GetAccountPreferences(ctx context.Context, accountID string) (*models.Preferences, error) {
+	key, err := r.client.BuildKey("PK", prefsPK(accountID), "SK", "PREFS")
 	if err != nil {
 		return nil, fmt.Errorf("failed to build preferences key: %w", err)
 	}
@@ -854,8 +779,9 @@ func (r *Repo) GetUserPreferences(ctx context.Context, userID string) (*models.P
 	return &prefs, nil
 }
 
-func (r *Repo) UpdateUserPreferences(ctx context.Context, userID string, req *models.UpdatePreferencesRequest) error {
-	key, err := r.client.BuildKey("PK", prefsPK(userID), "SK", "PREFS")
+// DB client method that updates account preferences.
+func (r *Repo) UpdateAccountPreferences(ctx context.Context, accountID string, req *models.UpdatePreferencesRequest) error {
+	key, err := r.client.BuildKey("PK", prefsPK(accountID), "SK", "PREFS")
 	if err != nil {
 		return fmt.Errorf("failed to build preferences key: %w", err)
 	}
@@ -895,8 +821,9 @@ func (r *Repo) UpdateUserPreferences(ctx context.Context, userID string, req *mo
 	return nil
 }
 
-func (r *Repo) DeleteUserPreferences(ctx context.Context, userID string) error {
-	key, err := r.client.BuildKey("PK", prefsPK(userID), "SK", "PREFS")
+// DB client method that deletes account preferences.
+func (r *Repo) DeleteAccountPreferences(ctx context.Context, accountID string) error {
+	key, err := r.client.BuildKey("PK", prefsPK(accountID), "SK", "PREFS")
 	if err != nil {
 		return fmt.Errorf("failed to build delete preferences key: %w", err)
 	}
@@ -912,11 +839,14 @@ type passkeyRecord struct {
 	models.PasskeyCredential
 }
 
-func passkeyPK(userID string) string { return "CUSTOMER#" + userID }
+// Helper function that formats the partition key for a passkey record.
+func passkeyPK(accountID string) string { return "ACCOUNT#" + accountID }
 
+// Helper function that formats the sort key for a passkey record.
 func passkeySK(credentialID string) string { return "PASSKEY#" + credentialID }
 
-func (r *Repo) CreatePasskey(ctx context.Context, userID string, cred *models.PasskeyCredential) error {
+// DB client method that creates a passkey credential for an account.
+func (r *Repo) CreatePasskey(ctx context.Context, accountID string, cred *models.PasskeyCredential) error {
 	if cred.CredentialID == "" {
 		return fmt.Errorf("credential_id is required")
 	}
@@ -926,7 +856,7 @@ func (r *Repo) CreatePasskey(ctx context.Context, userID string, cred *models.Pa
 	cred.LastUsedAt = nil
 
 	record := passkeyRecord{
-		PK:                passkeyPK(userID),
+		PK:                passkeyPK(accountID),
 		SK:                passkeySK(cred.CredentialID),
 		PasskeyCredential: *cred,
 	}
@@ -942,17 +872,20 @@ func (r *Repo) CreatePasskey(ctx context.Context, userID string, cred *models.Pa
 	return nil
 }
 
-func (r *Repo) GetUserPasskeys(ctx context.Context, userID string) ([]models.PasskeyCredential, error) {
+// DB client method that retrieves all passkey credentials for an account.
+func (r *Repo) GetAccountPasskeys(ctx context.Context, accountID string) ([]models.PasskeyCredential, error) {
 	var records []passkeyRecord
-	if _, err := r.client.QueryAs(ctx, dynamodb.QueryInput{
+	var query = dynamodb.QueryInput{
 		TableName:              r.table,
 		KeyConditionExpression: "PK = :pk AND begins_with(SK, :skPrefix)",
 		ExpressionValues: map[string]ddbTypes.AttributeValue{
-			":pk":       &ddbTypes.AttributeValueMemberS{Value: passkeyPK(userID)},
+			":pk":       &ddbTypes.AttributeValueMemberS{Value: passkeyPK(accountID)},
 			":skPrefix": &ddbTypes.AttributeValueMemberS{Value: "PASSKEY#"},
 		},
 		Limit: aws.Int32(100),
-	}, &records); err != nil {
+	}
+
+	if _, err := r.client.QueryAs(ctx, query, &records); err != nil {
 		return nil, fmt.Errorf("failed to query passkeys: %w", err)
 	}
 
@@ -963,8 +896,9 @@ func (r *Repo) GetUserPasskeys(ctx context.Context, userID string) ([]models.Pas
 	return creds, nil
 }
 
-func (r *Repo) UpdatePasskey(ctx context.Context, userID, credentialID string, update *models.PasskeyCredential) (*models.PasskeyCredential, error) {
-	key, err := r.client.BuildKey("PK", passkeyPK(userID), "SK", passkeySK(credentialID))
+// DB client method that updates a passkey credential for an account.
+func (r *Repo) UpdatePasskey(ctx context.Context, accountID, credentialID string, update *models.PasskeyCredential) (*models.PasskeyCredential, error) {
+	key, err := r.client.BuildKey("PK", passkeyPK(accountID), "SK", passkeySK(credentialID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build passkey key: %w", err)
 	}
@@ -1003,8 +937,9 @@ func (r *Repo) UpdatePasskey(ctx context.Context, userID, credentialID string, u
 	return &cred, nil
 }
 
-func (r *Repo) DeletePasskey(ctx context.Context, userID, credentialID string) error {
-	key, err := r.client.BuildKey("PK", passkeyPK(userID), "SK", passkeySK(credentialID))
+// DB client method that deletes a passkey credential for an account.
+func (r *Repo) DeletePasskey(ctx context.Context, accountID, credentialID string) error {
+	key, err := r.client.BuildKey("PK", passkeyPK(accountID), "SK", passkeySK(credentialID))
 	if err != nil {
 		return fmt.Errorf("failed to build passkey key: %w", err)
 	}
@@ -1020,10 +955,12 @@ type settingsRecord struct {
 	models.AccountSettings
 }
 
-func settingsPK(customerID string) string { return "CUSTOMER#" + customerID }
+// Helper function that formats the partition key for a settings record.
+func settingsPK(accountID string) string { return "ACCOUNT#" + accountID }
 
-func (r *Repo) GetSettings(ctx context.Context, customerID string) (*models.AccountSettings, error) {
-	key, err := r.client.BuildKey("PK", settingsPK(customerID), "SK", "SETTINGS")
+// DB client method that retrieves the account settings.
+func (r *Repo) GetSettings(ctx context.Context, accountID string) (*models.AccountSettings, error) {
+	key, err := r.client.BuildKey("PK", settingsPK(accountID), "SK", "SETTINGS")
 	if err != nil {
 		return nil, fmt.Errorf("failed to build settings key: %w", err)
 	}
@@ -1036,8 +973,9 @@ func (r *Repo) GetSettings(ctx context.Context, customerID string) (*models.Acco
 	return &s, nil
 }
 
-func (r *Repo) UpdateSettingsPartial(ctx context.Context, customerID string, req *models.UpdateSettingsRequest, version int) error {
-	key, err := r.client.BuildKey("PK", settingsPK(customerID), "SK", "SETTINGS")
+// DB client method that updates the account settings.
+func (r *Repo) UpdateSettingsPartial(ctx context.Context, accountID string, req *models.UpdateSettingsRequest, version int) error {
+	key, err := r.client.BuildKey("PK", settingsPK(accountID), "SK", "SETTINGS")
 	if err != nil {
 		return fmt.Errorf("failed to build settings key: %w", err)
 	}
@@ -1092,16 +1030,29 @@ func (r *Repo) UpdateSettingsPartial(ctx context.Context, customerID string, req
 	if _, err := r.client.UpdateItem(ctx, r.table, key, updateExpr, exprValues, exprNames, &condition); err != nil {
 		var conditionalCheckErr *ddbTypes.ConditionalCheckFailedException
 		if errors.As(err, &conditionalCheckErr) {
-			return fmt.Errorf("version conflict: %w", ErrVersionConflict)
+			return r.settingsConditionFailureError(ctx, key)
 		}
 		return fmt.Errorf("failed to update settings: %w", err)
 	}
 	return nil
 }
 
-func (r *Repo) UpdateSettings(ctx context.Context, customerID string, s *models.AccountSettings) error {
+// Helper function that returns a descriptive error when the settings condition fails.
+func (r *Repo) settingsConditionFailureError(ctx context.Context, key map[string]ddbTypes.AttributeValue) error {
+	var existing settingsRecord
+	if err := r.client.GetItemAs(ctx, r.table, key, false, nil, &existing); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return fmt.Errorf("settings not found: %w", ErrNotFound)
+		}
+		return fmt.Errorf("failed to verify settings existence: %w", err)
+	}
+	return fmt.Errorf("failed to write settings due to version conflict: %w", ErrVersionConflict)
+}
+
+// DB client method that updates the account settings.
+func (r *Repo) UpdateSettings(ctx context.Context, accountID string, s *models.AccountSettings) error {
 	record := settingsRecord{
-		PK:              settingsPK(customerID),
+		PK:              settingsPK(accountID),
 		SK:              "SETTINGS",
 		AccountSettings: *s,
 	}
@@ -1117,18 +1068,23 @@ type consentRecord struct {
 	models.ConsentLog
 }
 
-func consentPK(customerID string) string { return "CUSTOMER#" + customerID }
+// Helper function that formats the partition key for a consent record.
+func consentPK(accountID string) string { return "ACCOUNT#" + accountID }
 
+const consentSKTimeFormat = "2006-01-02T15:04:05.000000000Z07:00"
+
+// Helper function that formats the sort key for a consent record.
 func consentSK(channel string, at time.Time) string {
-	return "CONSENT#" + channel + "#" + at.UTC().Format(time.RFC3339Nano)
+	return "CONSENT#" + channel + "#" + at.UTC().Format(consentSKTimeFormat)
 }
 
-func (r *Repo) AppendConsentLog(ctx context.Context, customerID string, entry *models.ConsentLog) error {
+// DB client method that appends a consent log entry for an account.
+func (r *Repo) AppendConsentLog(ctx context.Context, accountID string, entry *models.ConsentLog) error {
 	if entry.RecordedAt.IsZero() {
 		entry.RecordedAt = time.Now().UTC()
 	}
 	record := consentRecord{
-		PK:         consentPK(customerID),
+		PK:         consentPK(accountID),
 		SK:         consentSK(entry.Channel, entry.RecordedAt),
 		ConsentLog: *entry,
 	}
@@ -1139,19 +1095,23 @@ func (r *Repo) AppendConsentLog(ctx context.Context, customerID string, entry *m
 	return nil
 }
 
-func (r *Repo) ListConsentHistory(ctx context.Context, customerID string) ([]models.ConsentLog, error) {
+// DB client method that lists the consent history for an account.
+func (r *Repo) ListConsentHistory(ctx context.Context, accountID string) ([]models.ConsentLog, error) {
 	var records []consentRecord
-	if _, err := r.client.QueryAs(ctx, dynamodb.QueryInput{
+	var query = dynamodb.QueryInput{
 		TableName:              r.table,
 		KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
 		ExpressionValues: map[string]ddbTypes.AttributeValue{
-			":pk":     &ddbTypes.AttributeValueMemberS{Value: consentPK(customerID)},
+			":pk":     &ddbTypes.AttributeValueMemberS{Value: consentPK(accountID)},
 			":prefix": &ddbTypes.AttributeValueMemberS{Value: "CONSENT#"},
 		},
 		Limit: aws.Int32(1000),
-	}, &records); err != nil {
+	}
+
+	if _, err := r.client.QueryAs(ctx, query, &records); err != nil {
 		return nil, fmt.Errorf("failed to list consent history: %w", err)
 	}
+
 	logs := make([]models.ConsentLog, len(records))
 	for i, r := range records {
 		logs[i] = r.ConsentLog
@@ -1159,12 +1119,13 @@ func (r *Repo) ListConsentHistory(ctx context.Context, customerID string) ([]mod
 	return logs, nil
 }
 
-func (r *Repo) MutateSettingsTags(ctx context.Context, customerID string, req *models.UpdateSettingsTagsRequest, version int) error {
+// DB client method that modifies the tags on an account's settings.
+func (r *Repo) MutateSettingsTags(ctx context.Context, accountID string, req *models.UpdateSettingsTagsRequest, version int) error {
 	if len(req.Add) == 0 && len(req.Remove) == 0 {
 		return nil
 	}
 
-	key, err := r.client.BuildKey("PK", settingsPK(customerID), "SK", "SETTINGS")
+	key, err := r.client.BuildKey("PK", settingsPK(accountID), "SK", "SETTINGS")
 	if err != nil {
 		return fmt.Errorf("failed to build settings key for tag mutation: %w", err)
 	}
@@ -1198,37 +1159,64 @@ func (r *Repo) MutateSettingsTags(ctx context.Context, customerID string, req *m
 	if _, err := r.client.UpdateItem(ctx, r.table, key, updateExpr, exprValues, exprNames, &condition); err != nil {
 		var conditionalCheckErr *ddbTypes.ConditionalCheckFailedException
 		if errors.As(err, &conditionalCheckErr) {
-			return fmt.Errorf("version conflict: %w", ErrVersionConflict)
+			return r.settingsConditionFailureError(ctx, key)
 		}
 		return fmt.Errorf("failed to mutate settings tags: %w", err)
 	}
 	return nil
 }
 
-func (r *Repo) GetLatestConsent(ctx context.Context, customerID, channel string) (*models.ConsentLog, error) {
+// DB client method that retrieves the latest consent record for a given channel.
+func (r *Repo) GetLatestConsent(ctx context.Context, accountID, channel string) (*models.ConsentLog, error) {
 	var records []consentRecord
-	scanForward := false
-	if _, err := r.client.QueryAs(ctx, dynamodb.QueryInput{
+	var query = dynamodb.QueryInput{
 		TableName:              r.table,
 		KeyConditionExpression: "PK = :pk AND begins_with(SK, :skPrefix)",
 		ExpressionValues: map[string]ddbTypes.AttributeValue{
-			":pk":       &ddbTypes.AttributeValueMemberS{Value: consentPK(customerID)},
+			":pk":       &ddbTypes.AttributeValueMemberS{Value: consentPK(accountID)},
 			":skPrefix": &ddbTypes.AttributeValueMemberS{Value: "CONSENT#" + channel + "#"},
 		},
-		ScanIndexForward: &scanForward,
+		ScanIndexForward: aws.Bool(false),
 		Limit:            aws.Int32(1),
-	}, &records); err != nil {
+	}
+
+	if _, err := r.client.QueryAs(ctx, query, &records); err != nil {
+		return nil, fmt.Errorf("failed to query consent log: %w", err)
+	}
+	if len(records) == 0 {
+		return nil, nil
+	}
+	return &records[0].ConsentLog, nil
+}
+
+// Helper function for backward compatibility with old query method.
+func (r *Repo) getLatestConsentLegacy(ctx context.Context, accountID, channel string) (*models.ConsentLog, error) {
+	var records []consentRecord
+	var query = dynamodb.QueryInput{
+		TableName:              r.table,
+		KeyConditionExpression: "PK = :pk AND begins_with(SK, :skPrefix)",
+		ExpressionValues: map[string]ddbTypes.AttributeValue{
+			":pk":       &ddbTypes.AttributeValueMemberS{Value: consentPK(accountID)},
+			":skPrefix": &ddbTypes.AttributeValueMemberS{Value: "CONSENT#" + channel + "#"},
+		},
+		ScanIndexForward: aws.Bool(false),
+		Limit:            aws.Int32(1),
+	}
+
+	if _, err := r.client.QueryAs(ctx, query, &records); err != nil {
 		return nil, fmt.Errorf("failed to query consent log: %w", err)
 	}
 	if len(records) == 0 {
 		return nil, fmt.Errorf("consent log not found: %w", ErrNotFound)
 	}
+
 	entry := records[0].ConsentLog
 	return &entry, nil
 }
 
-func (r *Repo) SoftDeleteCustomer(ctx context.Context, customerID string) error {
-	key, err := r.client.BuildKey("PK", settingsPK(customerID), "SK", "SETTINGS")
+// DB client method that soft deletes an account by setting its status to "pending_deletion".
+func (r *Repo) SoftDeleteAccount(ctx context.Context, accountID string) error {
+	key, err := r.client.BuildKey("PK", settingsPK(accountID), "SK", "SETTINGS")
 	if err != nil {
 		return fmt.Errorf("failed to build settings key: %w", err)
 	}
@@ -1245,19 +1233,31 @@ func (r *Repo) SoftDeleteCustomer(ctx context.Context, customerID string) error 
 		"#ua":   "updated_at",
 	}
 	updateExpr := "SET #st = :st, #scat = :scat, #ua = :ua"
-	condition := "attribute_exists(SK)"
+	condition := "attribute_exists(SK) AND #st <> :st"
+
 	if _, err := r.client.UpdateItem(ctx, r.table, key, updateExpr, exprValues, exprNames, &condition); err != nil {
 		var conditionalCheckErr *ddbTypes.ConditionalCheckFailedException
 		if errors.As(err, &conditionalCheckErr) {
-			return fmt.Errorf("settings record not found: %w", ErrNotFound)
+			var existing settingsRecord
+			if getErr := r.client.GetItemAs(ctx, r.table, key, false, nil, &existing); getErr != nil {
+				if errors.Is(getErr, ErrNotFound) {
+					return fmt.Errorf("settings record not found: %w", ErrNotFound)
+				}
+				return fmt.Errorf("failed to verify settings existence: %w", getErr)
+			}
+			if existing.Status == "pending_deletion" {
+				return nil
+			}
+			return fmt.Errorf("failed to soft-delete account: %w", err)
 		}
-		return fmt.Errorf("failed to soft-delete customer: %w", err)
+		return fmt.Errorf("failed to soft-delete account: %w", err)
 	}
 	return nil
 }
 
-func (r *Repo) RestoreCustomer(ctx context.Context, customerID string) error {
-	settings, err := r.GetSettings(ctx, customerID)
+// DB client method that restores a pending deletion account by setting its status back to "active".
+func (r *Repo) RestoreAccount(ctx context.Context, accountID string) error {
+	settings, err := r.GetSettings(ctx, accountID)
 	if err != nil {
 		return fmt.Errorf("failed to get settings for restore: %w", err)
 	}
@@ -1269,7 +1269,7 @@ func (r *Repo) RestoreCustomer(ctx context.Context, customerID string) error {
 		return fmt.Errorf("account restore window expired: %w", ErrAccountNotPendingDeletion)
 	}
 
-	key, err := r.client.BuildKey("PK", settingsPK(customerID), "SK", "SETTINGS")
+	key, err := r.client.BuildKey("PK", settingsPK(accountID), "SK", "SETTINGS")
 	if err != nil {
 		return fmt.Errorf("failed to build settings key for restore: %w", err)
 	}
@@ -1288,12 +1288,13 @@ func (r *Repo) RestoreCustomer(ctx context.Context, customerID string) error {
 	}
 	updateExpr := "SET #st = :st, #ua = :ua REMOVE #sr, #scat"
 	condition := "attribute_exists(SK) AND #st = :pendingDel"
+
 	if _, err := r.client.UpdateItem(ctx, r.table, key, updateExpr, exprValues, exprNames, &condition); err != nil {
 		var conditionalCheckErr *ddbTypes.ConditionalCheckFailedException
 		if errors.As(err, &conditionalCheckErr) {
 			return fmt.Errorf("account not eligible for restore: %w", ErrAccountNotPendingDeletion)
 		}
-		return fmt.Errorf("failed to restore customer: %w", err)
+		return fmt.Errorf("failed to restore account: %w", err)
 	}
 	return nil
 }

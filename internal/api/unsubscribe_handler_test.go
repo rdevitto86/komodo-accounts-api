@@ -16,18 +16,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"komodo-customer-api/internal/db"
-	"komodo-customer-api/internal/models"
+	"komodo-accounts-api/internal/db"
+	"komodo-accounts-api/internal/models"
 )
-
-// ── Unit Tests: UnsubscribeHandler ───────────────────────────────────────────
 
 func TestUnsubscribeHandler_ValidToken(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetUser(gomock.Any(), "cust_1").Return(&models.User{CustomerID: "cust_1"}, nil)
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountID: "cust_1"}, nil)
 	token, err := svc.MintUnsubscribeToken(context.Background(), "cust_1", "email")
 	require.NoError(t, err)
 
@@ -57,10 +55,10 @@ func TestUnsubscribeHandler_ExpiredToken_Returns400(t *testing.T) {
 	svc, _ := newTestService(t, ctrl)
 
 	expired := buildSignedUnsubToken(t, testUnsubKey, unsubPayload{
-		CustomerID: "cust_1",
-		Channel:    "email",
-		Exp:        time.Now().Add(-1 * time.Hour).Unix(),
-		JTI:        ksuid.New().String(),
+		AccountID: "cust_1",
+		Channel:   "email",
+		Exp:       time.Now().Add(-1 * time.Hour).Unix(),
+		JTI:       ksuid.New().String(),
 	})
 	req := makeRequest(t, http.MethodPost, "/v1/unsubscribe", map[string]any{"token": expired})
 	rr := httptest.NewRecorder()
@@ -73,7 +71,7 @@ func TestUnsubscribeHandler_ReplayProtection(t *testing.T) {
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetUser(gomock.Any(), "cust_1").Return(&models.User{CustomerID: "cust_1"}, nil)
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountID: "cust_1"}, nil)
 	token, err := svc.MintUnsubscribeToken(context.Background(), "cust_1", "email")
 	require.NoError(t, err)
 
@@ -104,17 +102,15 @@ func TestUnsubscribeHandler_ReplayProtection(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rr2.Code)
 }
 
-// ── Unit Tests: MintUnsubscribeTokenHandler ───────────────────────────────────
-
 func TestMintUnsubscribeTokenHandler_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetUser(gomock.Any(), "cust_1").Return(&models.User{CustomerID: "cust_1"}, nil)
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountID: "cust_1"}, nil)
 
 	body := map[string]any{"channel": "email"}
-	req := makeRequest(t, http.MethodPost, "/v1/customers/cust_1/unsubscribe-token", body)
+	req := makeRequest(t, http.MethodPost, "/v1/accounts/cust_1/unsubscribe-token", body)
 	req.SetPathValue("id", "cust_1")
 	rr := httptest.NewRecorder()
 	svc.MintUnsubscribeTokenHandler(rr, req)
@@ -128,7 +124,7 @@ func TestMintUnsubscribeTokenHandler_NoPathID(t *testing.T) {
 	svc, _ := newTestService(t, ctrl)
 
 	body := map[string]any{"channel": "email"}
-	req := makeRequest(t, http.MethodPost, "/v1/customers//unsubscribe-token", body)
+	req := makeRequest(t, http.MethodPost, "/v1/accounts//unsubscribe-token", body)
 	rr := httptest.NewRecorder()
 	svc.MintUnsubscribeTokenHandler(rr, req)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
@@ -140,7 +136,7 @@ func TestMintUnsubscribeTokenHandler_InvalidChannel_Returns400(t *testing.T) {
 	svc, _ := newTestService(t, ctrl)
 
 	body := map[string]any{"channel": "fax"}
-	req := makeRequest(t, http.MethodPost, "/v1/customers/cust_1/unsubscribe-token", body)
+	req := makeRequest(t, http.MethodPost, "/v1/accounts/cust_1/unsubscribe-token", body)
 	req.SetPathValue("id", "cust_1")
 	rr := httptest.NewRecorder()
 	svc.MintUnsubscribeTokenHandler(rr, req)
@@ -153,10 +149,10 @@ func TestUnsubscribeHandler_InvalidChannel_Returns400(t *testing.T) {
 	svc, _ := newTestService(t, ctrl)
 
 	token := buildSignedUnsubToken(t, testUnsubKey, unsubPayload{
-		CustomerID: "cust_1",
-		Channel:    "fax",
-		Exp:        time.Now().Add(30 * 24 * time.Hour).Unix(),
-		JTI:        ksuid.New().String(),
+		AccountID: "cust_1",
+		Channel:   "fax",
+		Exp:       time.Now().Add(30 * 24 * time.Hour).Unix(),
+		JTI:       ksuid.New().String(),
 	})
 	req := makeRequest(t, http.MethodPost, "/v1/unsubscribe", map[string]any{"token": token})
 	rr := httptest.NewRecorder()
@@ -170,9 +166,9 @@ func TestUnsubscribeHandler_MissingJTI_Returns400(t *testing.T) {
 	svc, _ := newTestService(t, ctrl)
 
 	token := buildSignedUnsubToken(t, testUnsubKey, unsubPayload{
-		CustomerID: "cust_1",
-		Channel:    "email",
-		Exp:        time.Now().Add(30 * 24 * time.Hour).Unix(),
+		AccountID: "cust_1",
+		Channel:   "email",
+		Exp:       time.Now().Add(30 * 24 * time.Hour).Unix(),
 	})
 	req := makeRequest(t, http.MethodPost, "/v1/unsubscribe", map[string]any{"token": token})
 	rr := httptest.NewRecorder()
@@ -180,22 +176,22 @@ func TestUnsubscribeHandler_MissingJTI_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
-func TestMintUnsubscribeTokenHandler_NonExistentCustomer_Returns404(t *testing.T) {
+func TestMintUnsubscribeTokenHandler_NonExistentAccount_Returns404(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetUser(gomock.Any(), "ghost_id").Return(nil, db.ErrNotFound)
+	repo.EXPECT().GetAccount(gomock.Any(), "ghost_id").Return(nil, db.ErrNotFound)
 
 	body := map[string]any{"channel": "email"}
-	req := makeRequest(t, http.MethodPost, "/v1/customers/ghost_id/unsubscribe-token", body)
+	req := makeRequest(t, http.MethodPost, "/v1/accounts/ghost_id/unsubscribe-token", body)
 	req.SetPathValue("id", "ghost_id")
 	rr := httptest.NewRecorder()
 	svc.MintUnsubscribeTokenHandler(rr, req)
 	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Setup ──────────────────────────────────────────────────────────────────
 
 var testUnsubKey = []byte("test-secret-32-bytes-padded-xx!!")
 

@@ -9,9 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// ── Unit Tests: sendUserError ─────────────────────────────────────────────────
-
-func TestSendUserError(t *testing.T) {
+func TestSendAccountError(t *testing.T) {
 	tests := []struct {
 		name       string
 		err        error
@@ -43,11 +41,12 @@ func TestSendUserError(t *testing.T) {
 			wantStatus: http.StatusInternalServerError,
 		},
 	}
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			rr := httptest.NewRecorder()
 			req, _ := http.NewRequest(http.MethodGet, "/", nil)
-			sendUserError(rr, req, tc.err)
+			sendAccountError(rr, req, tc.err)
 			assert.Equal(t, tc.wantStatus, rr.Code)
 		})
 	}

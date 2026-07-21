@@ -6,23 +6,24 @@ import (
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
 	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 
-	"komodo-customer-api/internal/models"
+	"komodo-accounts-api/internal/models"
 )
 
+// Route handler that returns all payments for an account
 func (s *Service) GetPaymentsHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromPath(req)
-	if userID == "" {
-		userID = userIDFromJWT(req)
+	accountID := req.PathValue("id")
+	if accountID == "" {
+		accountID = accountIDFromJWT(req)
 	}
-	if userID == "" {
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
 
-	payments, err := s.GetPayments(req.Context(), userID)
+	payments, err := s.GetPayments(req.Context(), accountID)
 	if err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 
@@ -31,9 +32,10 @@ func (s *Service) GetPaymentsHandler(wtr http.ResponseWriter, req *http.Request)
 	writeJSON(wtr, payments)
 }
 
+// Route handler that upserts a payment for an account
 func (s *Service) UpsertPaymentHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromJWT(req)
-	if userID == "" {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -45,20 +47,21 @@ func (s *Service) UpsertPaymentHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	if err := s.UpsertPayment(req.Context(), userID, &input); err != nil {
-		sendUserError(wtr, req, err)
+	if err := s.UpsertPayment(req.Context(), accountID, &input); err != nil {
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "payment"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "payment"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, input)
 }
 
+// Route handler that deletes a payment for an account
 func (s *Service) DeletePaymentHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromJWT(req)
-	if userID == "" {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -70,11 +73,11 @@ func (s *Service) DeletePaymentHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	if err := s.DeletePayment(req.Context(), userID, paymentID); err != nil {
-		sendUserError(wtr, req, err)
+	if err := s.DeletePayment(req.Context(), accountID, paymentID); err != nil {
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "payment"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "payment"))
 	wtr.WriteHeader(http.StatusNoContent)
 }

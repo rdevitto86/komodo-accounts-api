@@ -6,23 +6,24 @@ import (
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
 	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 
-	"komodo-customer-api/internal/models"
+	"komodo-accounts-api/internal/models"
 )
 
+// Route handler that returns all addresses for an account
 func (s *Service) GetAddressesHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromPath(req)
-	if userID == "" {
-		userID = userIDFromJWT(req)
+	accountID := req.PathValue("id")
+	if accountID == "" {
+		accountID = accountIDFromJWT(req)
 	}
-	if userID == "" {
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
 
-	addrs, err := s.GetAddresses(req.Context(), userID)
+	addrs, err := s.GetAddresses(req.Context(), accountID)
 	if err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 
@@ -31,9 +32,10 @@ func (s *Service) GetAddressesHandler(wtr http.ResponseWriter, req *http.Request
 	writeJSON(wtr, addrs)
 }
 
+// Route handler that adds a new address for an account
 func (s *Service) AddAddressHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromJWT(req)
-	if userID == "" {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -45,20 +47,21 @@ func (s *Service) AddAddressHandler(wtr http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	if err := s.AddAddress(req.Context(), userID, &input); err != nil {
-		sendUserError(wtr, req, err)
+	if err := s.AddAddress(req.Context(), accountID, &input); err != nil {
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "address"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "address"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusCreated)
 	writeJSON(wtr, input)
 }
 
+// Route handler that updates an existing address for an account
 func (s *Service) UpdateAddressHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromJWT(req)
-	if userID == "" {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -76,18 +79,19 @@ func (s *Service) UpdateAddressHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	if err := s.UpdateAddress(req.Context(), userID, addressID, &input); err != nil {
-		sendUserError(wtr, req, err)
+	if err := s.UpdateAddress(req.Context(), accountID, addressID, &input); err != nil {
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "address"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "address"))
 	wtr.WriteHeader(http.StatusOK)
 }
 
+// Route handler that deletes an existing address for an account
 func (s *Service) DeleteAddressHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromJWT(req)
-	if userID == "" {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -99,11 +103,11 @@ func (s *Service) DeleteAddressHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	if err := s.DeleteAddress(req.Context(), userID, addressID); err != nil {
-		sendUserError(wtr, req, err)
+	if err := s.DeleteAddress(req.Context(), accountID, addressID); err != nil {
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "address"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "address"))
 	wtr.WriteHeader(http.StatusNoContent)
 }

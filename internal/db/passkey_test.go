@@ -7,11 +7,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 
-	"komodo-customer-api/internal/models"
+	"komodo-accounts-api/internal/models"
 )
 
 func TestPasskeyPKSK(t *testing.T) {
-	if got, want := passkeyPK("user_123"), "CUSTOMER#user_123"; got != want {
+	if got, want := passkeyPK("user_123"), "ACCOUNT#user_123"; got != want {
 		t.Errorf("passkeyPK() = %q, want %q", got, want)
 	}
 	if got, want := passkeySK("cred_abc"), "PASSKEY#cred_abc"; got != want {

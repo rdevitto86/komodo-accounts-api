@@ -6,24 +6,25 @@ import (
 	httpErr "github.com/rdevitto86/komodo-forge-sdk-go/api/errors"
 	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 
-	"komodo-customer-api/internal/models"
+	"komodo-accounts-api/internal/models"
 )
 
 type passkeyListResponse struct {
 	Credentials []models.PasskeyCredential `json:"credentials"`
 }
 
+// Route handler that returns all passkeys for an account
 func (s *Service) GetPasskeysHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromPath(req)
-	if userID == "" {
+	accountID := req.PathValue("id")
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
 
-	creds, err := s.GetPasskeys(req.Context(), userID)
+	creds, err := s.GetPasskeys(req.Context(), accountID)
 	if err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 
@@ -32,9 +33,10 @@ func (s *Service) GetPasskeysHandler(wtr http.ResponseWriter, req *http.Request)
 	writeJSON(wtr, passkeyListResponse{Credentials: creds})
 }
 
+// Route handler that adds a passkey to an account
 func (s *Service) AddPasskeyHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromPath(req)
-	if userID == "" {
+	accountID := req.PathValue("id")
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -50,20 +52,21 @@ func (s *Service) AddPasskeyHandler(wtr http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	if err := s.AddPasskey(req.Context(), userID, &input); err != nil {
-		sendUserError(wtr, req, err)
+	if err := s.AddPasskey(req.Context(), accountID, &input); err != nil {
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "passkey"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "passkey"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusCreated)
 	writeJSON(wtr, input)
 }
 
+// Route handler that updates a passkey for an account
 func (s *Service) UpdatePasskeyHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromPath(req)
-	if userID == "" {
+	accountID := req.PathValue("id")
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -81,21 +84,22 @@ func (s *Service) UpdatePasskeyHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	updated, err := s.UpdatePasskey(req.Context(), userID, credentialID, &input)
+	updated, err := s.UpdatePasskey(req.Context(), accountID, credentialID, &input)
 	if err != nil {
-		sendUserError(wtr, req, err)
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "passkey"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "passkey"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, updated)
 }
 
+// Route handler that deletes a passkey for an account
 func (s *Service) DeletePasskeyHandler(wtr http.ResponseWriter, req *http.Request) {
-	userID := userIDFromPath(req)
-	if userID == "" {
+	accountID := req.PathValue("id")
+	if accountID == "" {
 		logger.Warn("unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
@@ -107,11 +111,11 @@ func (s *Service) DeletePasskeyHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	if err := s.DeletePasskey(req.Context(), userID, credentialID); err != nil {
-		sendUserError(wtr, req, err)
+	if err := s.DeletePasskey(req.Context(), accountID, credentialID); err != nil {
+		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("user resource updated", nil, logger.Attr("customer_id", userID), logger.Attr("resource", "passkey"))
+	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "passkey"))
 	wtr.WriteHeader(http.StatusNoContent)
 }
