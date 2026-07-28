@@ -14,6 +14,7 @@ import (
 )
 
 func TestCreateAddress_ConditionalPut_AlreadyExists(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -27,12 +28,13 @@ func TestCreateAddress_ConditionalPut_AlreadyExists(t *testing.T) {
 			return conditionalCheckErr()
 		})
 
-	err := repo.CreateAddress(context.Background(), "cust_1", &models.Address{AddressID: "addr_existing"})
+	err := repo.CreateAddress(context.Background(), "cust_1", &models.Address{AddressId: "addr_existing"})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrAlreadyExists))
 }
 
 func TestCreateAddress_Success_ServerGeneratedID(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -45,10 +47,11 @@ func TestCreateAddress_Success_ServerGeneratedID(t *testing.T) {
 	addr := &models.Address{}
 	err := repo.CreateAddress(context.Background(), "cust_1", addr)
 	require.NoError(t, err)
-	assert.NotEmpty(t, addr.AddressID)
+	assert.NotEmpty(t, addr.AddressId)
 }
 
 func TestUpsertPayment_CreateIntent_AlreadyExists(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -68,6 +71,7 @@ func TestUpsertPayment_CreateIntent_AlreadyExists(t *testing.T) {
 }
 
 func TestUpsertPayment_UpdateIntent_NotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -81,12 +85,13 @@ func TestUpsertPayment_UpdateIntent_NotFound(t *testing.T) {
 			return conditionalCheckErr()
 		})
 
-	err := repo.UpsertPayment(context.Background(), "cust_1", &models.PaymentMethod{PaymentID: "pay_foreign"})
+	err := repo.UpsertPayment(context.Background(), "cust_1", &models.PaymentMethod{PaymentId: "pay_foreign"})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrNotFound))
 }
 
 func TestUpsertPayment_UpdateIntent_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -100,6 +105,6 @@ func TestUpsertPayment_UpdateIntent_Success(t *testing.T) {
 			return nil
 		})
 
-	err := repo.UpsertPayment(context.Background(), "cust_1", &models.PaymentMethod{PaymentID: "pay_existing"})
+	err := repo.UpsertPayment(context.Background(), "cust_1", &models.PaymentMethod{PaymentId: "pay_existing"})
 	require.NoError(t, err)
 }

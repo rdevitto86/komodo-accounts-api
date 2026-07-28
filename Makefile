@@ -34,7 +34,7 @@ else
   LOG_LEVEL := debug
 endif
 
-.PHONY: build build_go run bootstrap stop restart clean vet test test_unit test_e2e lint diagrams diagrams-clean
+.PHONY: build build_go run bootstrap stop restart clean vet test test_unit test_component test_integration test_chaos test_e2e lint diagrams diagrams-clean
 
 help:
 	@echo "Targets:"
@@ -46,6 +46,9 @@ help:
 	@echo "  clean             Prune Docker and remove local build artifacts"
 	@echo "  test              Run all tests"
 	@echo "  test_unit         Run unit tests"
+	@echo "  test_component    Run component tests (TEST_TIER=component)"
+	@echo "  test_integration  Run integration tests (TEST_TIER=integration)"
+	@echo "  test_chaos        Run chaos tests (TEST_TIER=chaos)"
 	@echo "  test_e2e          Run end-to-end tests"
 	@echo "  lint              Run golangci-lint"
 	@echo "  diagrams          Render docs/diagrams/*.mmd to PNG (requires mmdc)"
@@ -116,6 +119,15 @@ test:
 
 test_unit:
 	@go test -short $(GO_PKGS)
+
+test_component:
+	@TEST_TIER=component go test $(GO_PKGS) -race
+
+test_integration:
+	@TEST_TIER=integration go test $(GO_PKGS) -race
+
+test_chaos:
+	@TEST_TIER=chaos go test $(GO_PKGS) -race
 
 test_e2e:
 	@go test -tags=e2e $(GO_PKGS)

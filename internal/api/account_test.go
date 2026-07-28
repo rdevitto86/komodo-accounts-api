@@ -19,6 +19,7 @@ import (
 )
 
 func TestDeleteProfile_GDPRDeleteAccountCalled(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -31,11 +32,12 @@ func TestDeleteProfile_GDPRDeleteAccountCalled(t *testing.T) {
 }
 
 func TestHMACTokenRoundTrip(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountID: "cust_1"}, nil)
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountId: "cust_1"}, nil)
 	repo.EXPECT().GetLatestConsent(gomock.Any(), "cust_1", "email").Return(nil, db.ErrNotFound)
 	repo.EXPECT().
 		AppendConsentLog(gomock.Any(), "cust_1", gomock.Any()).
@@ -50,11 +52,12 @@ func TestHMACTokenRoundTrip(t *testing.T) {
 }
 
 func TestHMACTokenTampered(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountID: "cust_1"}, nil)
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountId: "cust_1"}, nil)
 
 	token, err := svc.MintUnsubscribeToken(context.Background(), "cust_1", "email")
 	require.NoError(t, err)
@@ -70,6 +73,7 @@ func TestHMACTokenTampered(t *testing.T) {
 }
 
 func TestHMACTokenExpired(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -93,22 +97,22 @@ func TestHMACTokenExpired(t *testing.T) {
 }
 
 func TestUpdateProfile_OnlyTranslatesSuppliedFields(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	var captured *models.UpdateProfileRequest
+	var captured *models.UpdateAccountRequest
 	repo.EXPECT().
 		UpdateAccount(gomock.Any(), "cust_1", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, req *models.UpdateProfileRequest) (*models.Account, error) {
+		DoAndReturn(func(_ context.Context, _ string, req *models.UpdateAccountRequest) (*models.Account, error) {
 			captured = req
-			return &models.Account{AccountID: "cust_1"}, nil
+			return &models.Account{AccountId: "cust_1"}, nil
 		})
 
-	_, err := svc.UpdateProfile(context.Background(), "cust_1", &models.Account{
-		Username:  "ignored-username",
-		Email:     "ignored@example.com",
-		FirstName: "Jane",
+	firstName := "Jane"
+	_, err := svc.UpdateProfile(context.Background(), "cust_1", &models.UpdateAccountRequest{
+		FirstName: &firstName,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, captured)
@@ -116,17 +120,18 @@ func TestUpdateProfile_OnlyTranslatesSuppliedFields(t *testing.T) {
 	assert.Equal(t, "Jane", *captured.FirstName)
 	assert.Nil(t, captured.Phone)
 	assert.Nil(t, captured.LastName)
-	assert.Nil(t, captured.AvatarURL)
+	assert.Nil(t, captured.AvatarUrl)
 }
 
 func TestGetCredentials_CacheKeyIsLowercased(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
 	repo.EXPECT().
 		GetAccountCredentialsByEmail(gomock.Any(), "USER@Example.com").
-		Return(&models.CredentialsResponse{AccountID: "cust_1"}, nil).
+		Return(&models.CredentialsResponse{AccountId: "cust_1"}, nil).
 		Times(1)
 
 	_, err := svc.GetCredentials(context.Background(), "USER@Example.com")
@@ -134,41 +139,46 @@ func TestGetCredentials_CacheKeyIsLowercased(t *testing.T) {
 
 	creds, err := svc.GetCredentials(context.Background(), "user@example.com")
 	require.NoError(t, err)
-	assert.Equal(t, "cust_1", creds.AccountID)
+	assert.Equal(t, "cust_1", creds.AccountId)
 }
 
 func TestUpdateCredentials_InvalidatesCacheAfterSuccess(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
+	oldHash := "old_hash"
+	newHash := "new_hash"
 	repo.EXPECT().
 		GetAccountCredentialsByEmail(gomock.Any(), "user@example.com").
-		Return(&models.CredentialsResponse{AccountID: "cust_1", PasswordHash: "old_hash"}, nil).
+		Return(&models.CredentialsResponse{AccountId: "cust_1", PasswordHash: &oldHash}, nil).
 		Times(1)
 	repo.EXPECT().
 		UpdateAccountCredentials(gomock.Any(), "cust_1", gomock.Any()).
 		Return(nil)
 	repo.EXPECT().
 		GetAccount(gomock.Any(), "cust_1").
-		Return(&models.Account{AccountID: "cust_1", Email: "USER@Example.com"}, nil)
+		Return(&models.Account{AccountId: "cust_1", Email: "USER@Example.com"}, nil)
 	repo.EXPECT().
 		GetAccountCredentialsByEmail(gomock.Any(), "user@example.com").
-		Return(&models.CredentialsResponse{AccountID: "cust_1", PasswordHash: "new_hash"}, nil).
+		Return(&models.CredentialsResponse{AccountId: "cust_1", PasswordHash: &newHash}, nil).
 		Times(1)
 
 	_, err := svc.GetCredentials(context.Background(), "user@example.com")
 	require.NoError(t, err)
 
-	err = svc.UpdateCredentials(context.Background(), "cust_1", &models.UpdateCredentialsRequest{PasswordHash: "new_hash"})
+	err = svc.UpdateCredentials(context.Background(), "cust_1", &models.UpdateCredentialsRequest{PasswordHash: &newHash})
 	require.NoError(t, err)
 
 	creds, err := svc.GetCredentials(context.Background(), "user@example.com")
 	require.NoError(t, err)
-	assert.Equal(t, "new_hash", creds.PasswordHash)
+	require.NotNil(t, creds.PasswordHash)
+	assert.Equal(t, "new_hash", *creds.PasswordHash)
 }
 
 func TestUpdateCredentials_CacheInvalidationLookupFails_StillSucceeds(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -180,11 +190,13 @@ func TestUpdateCredentials_CacheInvalidationLookupFails_StillSucceeds(t *testing
 		GetAccount(gomock.Any(), "cust_1").
 		Return(nil, errors.New("boom"))
 
-	err := svc.UpdateCredentials(context.Background(), "cust_1", &models.UpdateCredentialsRequest{PasswordHash: "new_hash"})
+	hash := "new_hash"
+	err := svc.UpdateCredentials(context.Background(), "cust_1", &models.UpdateCredentialsRequest{PasswordHash: &hash})
 	require.NoError(t, err)
 }
 
 func TestAddAddress_AlreadyExists(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -193,12 +205,13 @@ func TestAddAddress_AlreadyExists(t *testing.T) {
 		CreateAddress(gomock.Any(), "cust_1", gomock.Any()).
 		Return(db.ErrAlreadyExists)
 
-	err := svc.AddAddress(context.Background(), "cust_1", &models.Address{AddressID: "addr_dupe"})
+	err := svc.AddAddress(context.Background(), "cust_1", &models.Address{AddressId: "addr_dupe"})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrAlreadyExists))
 }
 
 func TestUpsertPayment_AlreadyExists(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -213,6 +226,7 @@ func TestUpsertPayment_AlreadyExists(t *testing.T) {
 }
 
 func TestUpsertPayment_NotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -221,34 +235,37 @@ func TestUpsertPayment_NotFound(t *testing.T) {
 		UpsertPayment(gomock.Any(), "cust_1", gomock.Any()).
 		Return(db.ErrNotFound)
 
-	err := svc.UpsertPayment(context.Background(), "cust_1", &models.PaymentMethod{PaymentID: "pay_foreign"})
+	err := svc.UpsertPayment(context.Background(), "cust_1", &models.PaymentMethod{PaymentId: "pay_foreign"})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrNotFound))
 }
 
 func TestUpdateSettingsTags_UnknownService(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
 
-	req := &models.UpdateSettingsTagsRequest{Add: []string{"loyalty.vip"}}
+	req := &models.UpdateSettingsTagsRequest{Add: ptr([]string{"loyalty.vip"})}
 	_, err := svc.UpdateSettingsTags(context.Background(), "cust_1", "unknown-service", req)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrForbiddenNamespace))
 }
 
 func TestUpdateSettingsTags_WrongPrefix(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
 
-	req := &models.UpdateSettingsTagsRequest{Add: []string{"system.internal"}}
+	req := &models.UpdateSettingsTagsRequest{Add: ptr([]string{"system.internal"})}
 	_, err := svc.UpdateSettingsTags(context.Background(), "cust_1", "loyalty-api", req)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrForbiddenNamespace))
 }
 
 func TestUpdateSettingsTags_Valid(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -260,15 +277,16 @@ func TestUpdateSettingsTags_Valid(t *testing.T) {
 		Return(nil)
 	repo.EXPECT().
 		GetSettings(gomock.Any(), "cust_1").
-		Return(&models.AccountSettings{Status: "active", Tags: []string{"loyalty.vip"}}, nil)
+		Return(&models.AccountSettings{Status: "active", Tags: ptr([]string{"loyalty.vip"})}, nil)
 
-	req := &models.UpdateSettingsTagsRequest{Add: []string{"loyalty.vip"}}
+	req := &models.UpdateSettingsTagsRequest{Add: ptr([]string{"loyalty.vip"})}
 	result, err := svc.UpdateSettingsTags(context.Background(), "cust_1", "loyalty-api", req)
 	require.NoError(t, err)
-	assert.Contains(t, result.Tags, "loyalty.vip")
+	assert.Contains(t, deref(result.Tags), "loyalty.vip")
 }
 
 func TestUpdateSettingsTags_MissingSettingsRecord_MapsToNotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -280,13 +298,14 @@ func TestUpdateSettingsTags_MissingSettingsRecord_MapsToNotFound(t *testing.T) {
 		MutateSettingsTags(gomock.Any(), "cust_1", gomock.Any(), gomock.Any()).
 		Return(db.ErrNotFound)
 
-	req := &models.UpdateSettingsTagsRequest{Add: []string{"loyalty.vip"}}
+	req := &models.UpdateSettingsTagsRequest{Add: ptr([]string{"loyalty.vip"})}
 	_, err := svc.UpdateSettingsTags(context.Background(), "cust_1", "loyalty-api", req)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrNotFound))
 }
 
 func TestValidateStatus(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status  string
 		wantErr bool
@@ -301,12 +320,63 @@ func TestValidateStatus(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.status, func(t *testing.T) {
+			t.Parallel()
 			err := validateStatus(tc.status)
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestCreateAccount_MissingFields_MapsToInvalidInput(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		accountID string
+		req       models.CreateAccountRequest
+	}{
+		{name: "missing account_id", req: models.CreateAccountRequest{Email: "a@b.co", FirstName: "A", LastName: "B"}},
+		{name: "missing email", accountID: "cust_1", req: models.CreateAccountRequest{FirstName: "A", LastName: "B"}},
+		{name: "missing first_name", accountID: "cust_1", req: models.CreateAccountRequest{Email: "a@b.co", LastName: "B"}},
+		{name: "missing last_name", accountID: "cust_1", req: models.CreateAccountRequest{Email: "a@b.co", FirstName: "A"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			svc, _ := newTestService(t, ctrl)
+
+			_, err := svc.CreateAccount(context.Background(), tc.accountID, &tc.req)
+			require.ErrorIs(t, err, ErrInvalidInput)
+		})
+	}
+}
+
+func TestUpdateCredentials_MissingFields_MapsToInvalidInput(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		accountID string
+		req       models.UpdateCredentialsRequest
+	}{
+		{name: "missing account_id", req: models.UpdateCredentialsRequest{}},
+		{name: "no updatable field", accountID: "cust_1", req: models.UpdateCredentialsRequest{}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			svc, _ := newTestService(t, ctrl)
+
+			err := svc.UpdateCredentials(context.Background(), tc.accountID, &tc.req)
+			require.ErrorIs(t, err, ErrInvalidInput)
 		})
 	}
 }

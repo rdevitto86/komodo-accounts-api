@@ -14,6 +14,7 @@ import (
 )
 
 func TestGetCredentialsHandler_Found(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -21,10 +22,10 @@ func TestGetCredentialsHandler_Found(t *testing.T) {
 	repo.EXPECT().
 		GetAccountCredentialsByEmail(gomock.Any(), "user@example.com").
 		Return(&models.CredentialsResponse{
-			AccountID:     "cust_1",
-			PasswordHash:  "hashed_password",
+			AccountId:     "cust_1",
+			PasswordHash:  ptr("hashed_password"),
 			EmailVerified: true,
-			AuthMethods:   []string{"password"},
+			AuthMethods:   []models.CredentialsResponseAuthMethods{"password"},
 		}, nil)
 
 	req := makeRequest(t, http.MethodGet, "/v1/credentials?email=user@example.com", nil)
@@ -34,11 +35,12 @@ func TestGetCredentialsHandler_Found(t *testing.T) {
 
 	var resp models.CredentialsResponse
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-	assert.Equal(t, "hashed_password", resp.PasswordHash)
-	assert.Equal(t, "cust_1", resp.AccountID)
+	assert.Equal(t, "hashed_password", deref(resp.PasswordHash))
+	assert.Equal(t, "cust_1", resp.AccountId)
 }
 
 func TestGetCredentialsHandler_NoEmail(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -50,6 +52,7 @@ func TestGetCredentialsHandler_NoEmail(t *testing.T) {
 }
 
 func TestUpdateCredentialsHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -59,7 +62,7 @@ func TestUpdateCredentialsHandler_Success(t *testing.T) {
 		Return(nil)
 	repo.EXPECT().
 		GetAccount(gomock.Any(), "account_abc").
-		Return(&models.Account{AccountID: "account_abc", Email: "USER@Example.com"}, nil)
+		Return(&models.Account{AccountId: "account_abc", Email: "USER@Example.com"}, nil)
 
 	body := map[string]any{"password_hash": "new_hash"}
 	req := makeRequest(t, http.MethodPut, "/v1/accounts/account_abc/credentials", body)
@@ -70,6 +73,7 @@ func TestUpdateCredentialsHandler_Success(t *testing.T) {
 }
 
 func TestUpdateCredentialsHandler_BadJSON(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -82,6 +86,7 @@ func TestUpdateCredentialsHandler_BadJSON(t *testing.T) {
 }
 
 func TestUpdateCredentialsHandler_NoPathID(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -93,6 +98,7 @@ func TestUpdateCredentialsHandler_NoPathID(t *testing.T) {
 }
 
 func TestUpdateCredentialsHandler_EmptyBodyPasswordWrite(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -105,6 +111,7 @@ func TestUpdateCredentialsHandler_EmptyBodyPasswordWrite(t *testing.T) {
 }
 
 func TestGetCredentialsHandler_EmailVerifiedFromSettings_MissingSettings(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -112,9 +119,9 @@ func TestGetCredentialsHandler_EmailVerifiedFromSettings_MissingSettings(t *test
 	repo.EXPECT().
 		GetAccountCredentialsByEmail(gomock.Any(), "user@example.com").
 		Return(&models.CredentialsResponse{
-			AccountID:     "cust_1",
+			AccountId:     "cust_1",
 			EmailVerified: false,
-			AuthMethods:   []string{},
+			AuthMethods:   []models.CredentialsResponseAuthMethods{},
 		}, nil)
 
 	req := makeRequest(t, http.MethodGet, "/v1/credentials?email=user@example.com", nil)
@@ -128,6 +135,7 @@ func TestGetCredentialsHandler_EmailVerifiedFromSettings_MissingSettings(t *test
 }
 
 func TestGetCredentialsHandler_EmailVerifiedFromSettings_Verified(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -135,9 +143,9 @@ func TestGetCredentialsHandler_EmailVerifiedFromSettings_Verified(t *testing.T) 
 	repo.EXPECT().
 		GetAccountCredentialsByEmail(gomock.Any(), "user@example.com").
 		Return(&models.CredentialsResponse{
-			AccountID:     "cust_1",
+			AccountId:     "cust_1",
 			EmailVerified: true,
-			AuthMethods:   []string{"passkey"},
+			AuthMethods:   []models.CredentialsResponseAuthMethods{"passkey"},
 		}, nil)
 
 	req := makeRequest(t, http.MethodGet, "/v1/credentials?email=user@example.com", nil)
@@ -151,13 +159,14 @@ func TestGetCredentialsHandler_EmailVerifiedFromSettings_Verified(t *testing.T) 
 }
 
 func TestGetAccountExistsHandler_Found(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
 	repo.EXPECT().
 		GetAccountExistsByEmail(gomock.Any(), "exists@example.com").
-		Return(&models.AccountExistsResponse{Exists: true, AuthMethods: []string{"password"}}, nil)
+		Return(&models.AccountExistsResponse{Exists: true}, nil)
 
 	req := makeRequest(t, http.MethodGet, "/v1/accounts/exists?email=exists@example.com", nil)
 	rr := httptest.NewRecorder()
@@ -167,16 +176,18 @@ func TestGetAccountExistsHandler_Found(t *testing.T) {
 	var resp models.AccountExistsResponse
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
 	assert.True(t, resp.Exists)
+	assert.NotContains(t, rr.Body.String(), "auth_methods")
 }
 
 func TestGetAccountExistsHandler_NotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
 	repo.EXPECT().
 		GetAccountExistsByEmail(gomock.Any(), "nobody@example.com").
-		Return(&models.AccountExistsResponse{Exists: false, AuthMethods: []string{}}, nil)
+		Return(&models.AccountExistsResponse{Exists: false}, nil)
 
 	req := makeRequest(t, http.MethodGet, "/v1/accounts/exists?email=nobody@example.com", nil)
 	rr := httptest.NewRecorder()

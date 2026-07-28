@@ -13,21 +13,23 @@ import (
 )
 
 func TestGetPreferencesHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
 	repo.EXPECT().
 		GetAccountPreferences(gomock.Any(), "account_abc").
-		Return(&models.Preferences{Language: "en", Timezone: "UTC"}, nil)
+		Return(&models.Preferences{Language: ptr("en"), Timezone: ptr("UTC")}, nil)
 
-	req := withAccountID(makeRequest(t, http.MethodGet, "/v1/me/preferences", nil), "account_abc")
+	req := withAccountId(makeRequest(t, http.MethodGet, "/v1/me/preferences", nil), "account_abc")
 	rr := httptest.NewRecorder()
 	svc.GetPreferencesHandler(rr, req)
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
 func TestGetPreferencesHandler_NotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -36,13 +38,14 @@ func TestGetPreferencesHandler_NotFound(t *testing.T) {
 		GetAccountPreferences(gomock.Any(), "account_missing").
 		Return(nil, db.ErrNotFound)
 
-	req := withAccountID(makeRequest(t, http.MethodGet, "/v1/me/preferences", nil), "account_missing")
+	req := withAccountId(makeRequest(t, http.MethodGet, "/v1/me/preferences", nil), "account_missing")
 	rr := httptest.NewRecorder()
 	svc.GetPreferencesHandler(rr, req)
 	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
 func TestUpdatePreferencesHandler_MarketingConsentGuard(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -53,25 +56,27 @@ func TestUpdatePreferencesHandler_MarketingConsentGuard(t *testing.T) {
 			"email": "opted_in",
 		},
 	}
-	req := withAccountID(makeRequest(t, http.MethodPut, "/v1/me/preferences", body), "account_abc")
+	req := withAccountId(makeRequest(t, http.MethodPut, "/v1/me/preferences", body), "account_abc")
 	rr := httptest.NewRecorder()
 	svc.UpdatePreferencesHandler(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
 func TestUpdatePreferencesHandler_InvalidChannel_Returns400(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
 
 	body := map[string]any{"communication": map[string]bool{"unknown_channel": true}}
-	req := withAccountID(makeRequest(t, http.MethodPut, "/v1/me/preferences", body), "account_abc")
+	req := withAccountId(makeRequest(t, http.MethodPut, "/v1/me/preferences", body), "account_abc")
 	rr := httptest.NewRecorder()
 	svc.UpdatePreferencesHandler(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
 func TestUpdatePreferencesHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -81,13 +86,14 @@ func TestUpdatePreferencesHandler_Success(t *testing.T) {
 		Return(nil)
 
 	body := map[string]any{"language": "en", "timezone": "UTC"}
-	req := withAccountID(makeRequest(t, http.MethodPut, "/v1/me/preferences", body), "account_abc")
+	req := withAccountId(makeRequest(t, http.MethodPut, "/v1/me/preferences", body), "account_abc")
 	rr := httptest.NewRecorder()
 	svc.UpdatePreferencesHandler(rr, req)
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
 func TestDeletePreferencesHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -96,7 +102,7 @@ func TestDeletePreferencesHandler_Success(t *testing.T) {
 		DeleteAccountPreferences(gomock.Any(), "account_abc").
 		Return(nil)
 
-	req := withAccountID(makeRequest(t, http.MethodDelete, "/v1/me/preferences", nil), "account_abc")
+	req := withAccountId(makeRequest(t, http.MethodDelete, "/v1/me/preferences", nil), "account_abc")
 	rr := httptest.NewRecorder()
 	svc.DeletePreferencesHandler(rr, req)
 	assert.Equal(t, http.StatusNoContent, rr.Code)

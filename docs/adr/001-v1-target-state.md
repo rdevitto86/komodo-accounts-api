@@ -28,6 +28,7 @@ V1 takes the service from a mid-refactor state to production-ready. The service 
 | 7 | Test coverage retrofit | Done (2026-06-28) |
 | 8 | Code-quality & CI alignment | In Progress |
 | 9 | V1 finalization (routes, US-deletion, schema, concurrency, infra ownership) | Open — see D1–D10 below |
+| 18 | Test tier build-out — component + integration | Open — see D11 below |
 
 Every phase exits on the same gate: `go build ./... && go vet ./... && TEST_TIER=component go test -race ./... && golangci-lint run`, plus an `openapi.yaml` lint.
 
@@ -117,6 +118,20 @@ Realistic per-account counts in V1: addresses ≤5, payment methods ≤3, passke
 - **Why not ship the wrapper now:** shipping a `next_cursor` that is always empty invites premature client logic; the BFF unwraps the same shape regardless when the time comes.
 - **Revisit triggers:** usage data shows any list >50 items; bulk-admin/CS views land; ConsentLog growth on long-tenured accounts approaches the cap.
 
+### D11 — Component and integration tests are V1 scope
+
+Decided 2026-07-20. Both tiers ship in V1. This **reverses** the prior deferral of integration tests to V2 (previously gated on "coverage-floor pressure or multi-region work"); component tests were never explicitly scoped at all, despite `TEST_TIER=component` appearing in every phase-exit gate in this ADR and in `TODO.md`.
+
+The gap this closes: `test/component/`, `test/integration/`, `test/chaos/`, and `test/perf/` exist as empty directories, and no code in the repo reads `TEST_TIER`. The gate `TEST_TIER=component go test -race ./...` is currently identical in effect to `go test -race ./...`, so the tier has been asserted in documentation without ever being enforced.
+
+- **Component** (`test/component/`, `testutil.Component(t)`): real `api.Service` over generated mocks, driven through a live `http.ServeMux` from `newPublicMux`/`newPrivateMux` — not by calling handlers directly. Route-registration collisions and the middleware chain are only observable this way; today a duplicate method+path panics at process boot and no test would catch it.
+- **Integration** (`test/integration/`, `testutil.Integration(t)`): `testcontainers-go` + LocalStack DynamoDB against the real `internal/db.Repo`. Covers what mocks structurally cannot — `TransactWriteItems` cancellation reasons, conditional-write guards, `BatchGetItem` `UnprocessedKeys` under throttling, GSI1 email lookup, D7's version conflicts, and lexicographic SK ordering.
+- **Why now rather than V2:** the correctness batch closed in Phase 12 (12.1–12.4, 12.6, 12.7) consists almost entirely of DynamoDB conditional-expression and transaction-cancellation semantics. Mocks assert the call shape, not DynamoDB's actual behavior, so those fixes are currently verified only by inspection. That is the coverage-floor pressure the original deferral was waiting for — it already arrived.
+- **Cost of the reversal:** the tier folders and the SDK gate helpers already exist (`testing/testutil` at the pinned `v0.22.1`), so no SDK work is required; the cost is test authorship plus a LocalStack container in CI on the merge-to-`main` path.
+- **Environment placement** is unchanged from `~/.claude/standards/testing.md` §1 — integration remains an STG-tier concern against full-stack infra; `testcontainers` makes the DynamoDB slice of it runnable locally and in CI without waiting on a deploy.
+
+Tracked as Phase 18 in `TODO.md` (18.1–18.5).
+
 ---
 
 ## Decisions rejected (recorded so they aren't relitigated)
@@ -142,3 +157,4 @@ Realistic per-account counts in V1: addresses ≤5, payment methods ≤3, passke
 - D8 makes this repo the single source of truth for the accounts table schema. Any future schema change starts in `data-model.md` and the CDK in the same PR.
 - The cross-review gate (`AGENTS.md`) applies: every change `software-engineer` produces is reviewed by `quality-assurance` against `~/.claude/standards/` and this ADR before it's called done.
 - After Phase 9, accounts-api enters GA-candidate state. Forward-looking work (avatar transforms, cursor pagination, shareable wishlists, multi-region cache) is V2 and out of scope here.
+- D11 makes the `TEST_TIER` gate in every phase-exit command above load-bearing for the first time. Until Phase 18.1 lands, that gate is a no-op and phases have been exiting on unit tests alone — worth knowing when reading the "Done" column above.

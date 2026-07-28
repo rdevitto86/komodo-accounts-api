@@ -9,8 +9,8 @@ import (
 
 type repository interface {
 	GetAccount(ctx context.Context, accountID string) (*models.Account, error)
-	CreateAccount(ctx context.Context, account *models.Account) error
-	UpdateAccount(ctx context.Context, accountID string, update *models.UpdateProfileRequest) (*models.Account, error)
+	CreateAccount(ctx context.Context, accountID string, req *models.CreateAccountRequest) (*models.Account, error)
+	UpdateAccount(ctx context.Context, accountID string, update *models.UpdateAccountRequest) (*models.Account, error)
 	DeleteAccount(ctx context.Context, accountID string) error
 	SoftDeleteAccount(ctx context.Context, accountID string) error
 	RestoreAccount(ctx context.Context, accountID string) error
@@ -27,7 +27,7 @@ type repository interface {
 	SetPaymentDefault(ctx context.Context, accountID, paymentID string) error
 
 	GetAccountPreferences(ctx context.Context, accountID string) (*models.Preferences, error)
-	UpdateAccountPreferences(ctx context.Context, accountID string, req *models.UpdatePreferencesRequest) error
+	UpdateAccountPreferences(ctx context.Context, accountID string, req *models.Preferences) error
 	DeleteAccountPreferences(ctx context.Context, accountID string) error
 
 	GetAccountCredentialsByEmail(ctx context.Context, email string) (*models.CredentialsResponse, error)

@@ -10,11 +10,13 @@ import (
 )
 
 func TestHealthProbe_NoPort_Returns1(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, 1, HealthProbe(""))
 	assert.Equal(t, 1, HealthProbe("  "))
 }
 
 func TestHealthProbe_Healthy_Returns0(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -24,6 +26,7 @@ func TestHealthProbe_Healthy_Returns0(t *testing.T) {
 }
 
 func TestHealthProbe_Non2xx_Returns1(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -33,6 +36,7 @@ func TestHealthProbe_Non2xx_Returns1(t *testing.T) {
 }
 
 func TestHealthProbe_ConnectionRefused_Returns1(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	port := probePort(t, srv.URL)
 	srv.Close()

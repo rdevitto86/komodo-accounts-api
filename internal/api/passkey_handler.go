@@ -17,7 +17,7 @@ type passkeyListResponse struct {
 func (s *Service) GetPasskeysHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := req.PathValue("id")
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -37,7 +37,7 @@ func (s *Service) GetPasskeysHandler(wtr http.ResponseWriter, req *http.Request)
 func (s *Service) AddPasskeyHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := req.PathValue("id")
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -47,7 +47,7 @@ func (s *Service) AddPasskeyHandler(wtr http.ResponseWriter, req *http.Request) 
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}
-	if input.CredentialID == "" {
+	if input.CredentialId == "" {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}
@@ -57,7 +57,7 @@ func (s *Service) AddPasskeyHandler(wtr http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "passkey"))
+	logger.Info("created account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "passkey"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusCreated)
 	writeJSON(wtr, input)
@@ -67,7 +67,7 @@ func (s *Service) AddPasskeyHandler(wtr http.ResponseWriter, req *http.Request) 
 func (s *Service) UpdatePasskeyHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := req.PathValue("id")
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -90,7 +90,7 @@ func (s *Service) UpdatePasskeyHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "passkey"))
+	logger.Info("updated account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "passkey"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, updated)
@@ -100,7 +100,7 @@ func (s *Service) UpdatePasskeyHandler(wtr http.ResponseWriter, req *http.Reques
 func (s *Service) DeletePasskeyHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := req.PathValue("id")
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -116,6 +116,6 @@ func (s *Service) DeletePasskeyHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "passkey"))
+	logger.Info("deleted account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "passkey"))
 	wtr.WriteHeader(http.StatusNoContent)
 }

@@ -131,6 +131,16 @@ rules:
         Authorization:
           required: true
           value: "Bearer *"
+        Content-Type:
+          required: true
+          value: "application/json"
+      body:
+        content_type:
+          type: "string"
+          required: true
+        content_length:
+          type: "number"
+          required: true
 
   # ---------------------------------------------------------------------------
   # Addresses — /me/addresses

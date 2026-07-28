@@ -40,6 +40,7 @@ coverage/
 *.pb.go
 *_mock.go
 mock_*.go
+!test/mocks/mock_*.go
 docs/diagrams/
 
 # Debugger

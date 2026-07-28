@@ -51,7 +51,7 @@ linters:
 
     wrapcheck:
       ignore-package-globs:
-        - komodo-forge-sdk-go/*   # internal SDK, wrapping optional
+        - github.com/rdevitto86/komodo-forge-sdk-go/*   # internal SDK, wrapping optional
 
     errorlint:
       errorf: true

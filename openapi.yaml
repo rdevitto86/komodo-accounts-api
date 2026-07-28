@@ -214,19 +214,21 @@ paths:
       x-visibility: public
       security:
         - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AvatarUploadRequest"
       responses:
         "200":
           description: Pre-signed upload URL
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  upload_url:
-                    type: string
-                  expires_in_seconds:
-                    type: integer
-                    example: 900
+                $ref: "#/components/schemas/AvatarUploadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -308,7 +310,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/AddressInput"
+              $ref: "#/components/schemas/UpdateAddressRequest"
       responses:
         "200":
           description: Updated address
@@ -808,11 +810,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [channel]
-              properties:
-                channel:
-                  type: string
+              $ref: "#/components/schemas/MintUnsubscribeTokenRequest"
       responses:
         "201":
           description: Token minted
@@ -979,6 +977,60 @@ components:
         is_default:
           type: boolean
 
+    UpdateAddressRequest:
+      type: object
+      description: >-
+        Partial address update. Every field is optional; only fields present in
+        the request body are applied, so an absent field is left unchanged.
+      properties:
+        alias:
+          type: string
+        line1:
+          type: string
+        line2:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        zip_code:
+          type: string
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code (e.g. "US")
+        is_default:
+          type: boolean
+
+    AvatarUploadRequest:
+      type: object
+      description: >-
+        Declares the image the client intends to upload. The returned pre-signed URL is bound to
+        exactly this content type and byte length, so the subsequent S3 PUT must match both or the
+        signature is rejected.
+      required: [content_type, content_length]
+      properties:
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        content_length:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 2097152
+          description: Size of the image in bytes. Maximum 2 MiB.
+
+    AvatarUploadResponse:
+      type: object
+      required: [upload_url, expires_in_seconds, max_bytes]
+      properties:
+        upload_url:
+          type: string
+        expires_in_seconds:
+          type: integer
+        max_bytes:
+          type: integer
+          format: int64
+
     Preferences:
       type: object
       properties:
@@ -1022,7 +1074,7 @@ components:
     CredentialsResponse:
       type: object
       description: Internal-only credential fields for auth-api login verification
-      required: [account_id, email_verified, auth_methods]
+      required: [account_id, email_verified, auth_methods, status]
       properties:
         account_id:
           type: string
@@ -1031,6 +1083,13 @@ components:
           description: Argon2id hash; empty for passwordless-only accounts
         email_verified:
           type: boolean
+        status:
+          type: string
+          enum: [active, suspended, closed, pending_deletion]
+          description: >-
+            Account lifecycle status, so auth-api can refuse login for suspended or closed
+            accounts. `pending_deletion` MUST remain loggable-in — the 30-day restore flow
+            (POST /v1/me/profile/restore) requires an authenticated session.
         auth_methods:
           type: array
           items:
@@ -1053,16 +1112,15 @@ components:
 
     AccountExistsResponse:
       type: object
-      required: [exists, auth_methods]
+      description: >-
+        Deliberately returns only a boolean. `auth_methods` was removed 2026-07-26 (item 13.2):
+        this route is unauthenticated, and returning the registered authentication methods for an
+        arbitrary email made it a per-email auth-method oracle. The existence boolean alone is the
+        accepted tradeoff recorded in ADR 001; anything beyond it is not.
+      required: [exists]
       properties:
         exists:
           type: boolean
-        auth_methods:
-          type: array
-          items:
-            type: string
-            enum: [password, passkey, otp, google, apple]
-          description: Empty array when exists is false
 
     PasskeyCredential:
       type: object
@@ -1099,7 +1157,18 @@ components:
 
     AccountSettings:
       type: object
+      required: [status, version]
       properties:
+        email_verified:
+          type: boolean
+        email_verified_at:
+          type: string
+          format: date-time
+        phone_verified:
+          type: boolean
+        phone_verified_at:
+          type: string
+          format: date-time
         status:
           type: string
           enum: [active, suspended, closed, pending_deletion]
@@ -1119,6 +1188,16 @@ components:
     UpdateSettingsRequest:
       type: object
       properties:
+        email_verified:
+          type: boolean
+        email_verified_at:
+          type: string
+          format: date-time
+        phone_verified:
+          type: boolean
+        phone_verified_at:
+          type: string
+          format: date-time
         status:
           type: string
           enum: [active, suspended, closed, pending_deletion]
@@ -1152,6 +1231,7 @@ components:
 
     ConsentLog:
       type: object
+      required: [channel, action, source, recorded_at]
       properties:
         channel:
           type: string
@@ -1181,6 +1261,13 @@ components:
         expires_at:
           type: string
           format: date-time
+
+    MintUnsubscribeTokenRequest:
+      type: object
+      required: [channel]
+      properties:
+        channel:
+          type: string
 
     MintUnsubscribeTokenResponse:
       type: object

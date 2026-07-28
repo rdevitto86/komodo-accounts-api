@@ -15,6 +15,7 @@ import (
 )
 
 func TestUpdateSettingsPartial_MissingRecord_MapsToNotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -36,6 +37,7 @@ func TestUpdateSettingsPartial_MissingRecord_MapsToNotFound(t *testing.T) {
 }
 
 func TestUpdateSettingsPartial_ExistingRecord_MapsToVersionConflict(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -62,6 +64,7 @@ func TestUpdateSettingsPartial_ExistingRecord_MapsToVersionConflict(t *testing.T
 }
 
 func TestUpdateSettingsPartial_TransientReadError_NotMaskedAsNotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -84,6 +87,7 @@ func TestUpdateSettingsPartial_TransientReadError_NotMaskedAsNotFound(t *testing
 }
 
 func TestMutateSettingsTags_MissingRecord_MapsToNotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -98,12 +102,14 @@ func TestMutateSettingsTags_MissingRecord_MapsToNotFound(t *testing.T) {
 		GetItemAs(gomock.Any(), "test-table", key, false, nil, gomock.Any()).
 		Return(ErrNotFound)
 
-	err := repo.MutateSettingsTags(context.Background(), "cust_1", &models.UpdateSettingsTagsRequest{Add: []string{"loyalty.vip"}}, 3)
+	tags := []string{"loyalty.vip"}
+	err := repo.MutateSettingsTags(context.Background(), "cust_1", &models.UpdateSettingsTagsRequest{Add: &tags}, 3)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrNotFound))
 }
 
 func TestMutateSettingsTags_ExistingRecord_MapsToVersionConflict(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -123,12 +129,14 @@ func TestMutateSettingsTags_ExistingRecord_MapsToVersionConflict(t *testing.T) {
 			return nil
 		})
 
-	err := repo.MutateSettingsTags(context.Background(), "cust_1", &models.UpdateSettingsTagsRequest{Add: []string{"loyalty.vip"}}, 3)
+	tags := []string{"loyalty.vip"}
+	err := repo.MutateSettingsTags(context.Background(), "cust_1", &models.UpdateSettingsTagsRequest{Add: &tags}, 3)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrVersionConflict))
 }
 
 func TestMutateSettingsTags_TransientReadError_NotMaskedAsNotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -143,13 +151,15 @@ func TestMutateSettingsTags_TransientReadError_NotMaskedAsNotFound(t *testing.T)
 		GetItemAs(gomock.Any(), "test-table", key, false, nil, gomock.Any()).
 		Return(errors.New("throttled request"))
 
-	err := repo.MutateSettingsTags(context.Background(), "cust_1", &models.UpdateSettingsTagsRequest{Add: []string{"loyalty.vip"}}, 3)
+	tags := []string{"loyalty.vip"}
+	err := repo.MutateSettingsTags(context.Background(), "cust_1", &models.UpdateSettingsTagsRequest{Add: &tags}, 3)
 	require.Error(t, err)
 	assert.False(t, errors.Is(err, ErrNotFound))
 	assert.False(t, errors.Is(err, ErrVersionConflict))
 }
 
 func TestSoftDeleteAccount_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -159,7 +169,15 @@ func TestSoftDeleteAccount_Success(t *testing.T) {
 	client.EXPECT().BuildKey("PK", "ACCOUNT#cust_1", "SK", "SETTINGS").Return(key, nil)
 	client.EXPECT().
 		UpdateItem(gomock.Any(), "test-table", key, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, _ map[string]ddbTypes.AttributeValue, _ string, _ map[string]ddbTypes.AttributeValue, _ map[string]string, cond *string) (map[string]ddbTypes.AttributeValue, error) {
+		DoAndReturn(func(
+			_ context.Context,
+			_ string,
+			_ map[string]ddbTypes.AttributeValue,
+			_ string,
+			_ map[string]ddbTypes.AttributeValue,
+			_ map[string]string,
+			cond *string,
+		) (map[string]ddbTypes.AttributeValue, error) {
 			require.NotNil(t, cond)
 			assert.Equal(t, "attribute_exists(SK) AND #st <> :st", *cond)
 			return nil, nil
@@ -170,6 +188,7 @@ func TestSoftDeleteAccount_Success(t *testing.T) {
 }
 
 func TestSoftDeleteAccount_AlreadyPendingDeletion_IsIdempotent(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -194,6 +213,7 @@ func TestSoftDeleteAccount_AlreadyPendingDeletion_IsIdempotent(t *testing.T) {
 }
 
 func TestSoftDeleteAccount_MissingRecord_MapsToNotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -214,6 +234,7 @@ func TestSoftDeleteAccount_MissingRecord_MapsToNotFound(t *testing.T) {
 }
 
 func TestSoftDeleteAccount_TransientReadError_NotMaskedAsNotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)

@@ -42,7 +42,7 @@ func makeRequest(t *testing.T, method, path string, body any) *http.Request {
 	return req
 }
 
-func withAccountID(req *http.Request, id string) *http.Request {
+func withAccountId(req *http.Request, id string) *http.Request {
 	ctx := context.WithValue(req.Context(), ctxKeys.USER_ID_KEY, id)
 	return req.WithContext(ctx)
 }
@@ -125,4 +125,14 @@ func (m *mockS3) PresignGet(ctx context.Context, bucket, key string, ttl time.Du
 		return m.presignGetFn(ctx, bucket, key, ttl)
 	}
 	return "https://example.com/presigned-download", nil
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func deref[T any](p *T) T {
+	var zero T
+	if p == nil {
+		return zero
+	}
+	return *p
 }

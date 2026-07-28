@@ -14,13 +14,14 @@ import (
 )
 
 func TestGetPasskeysHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
 	repo.EXPECT().
 		GetAccountPasskeys(gomock.Any(), "account_abc").
-		Return([]models.PasskeyCredential{{CredentialID: "cred_1", PublicKey: "pubkey"}}, nil)
+		Return([]models.PasskeyCredential{{CredentialId: "cred_1", PublicKey: "pubkey"}}, nil)
 
 	req := makeRequest(t, http.MethodGet, "/v1/accounts/account_abc/passkeys", nil)
 	req.SetPathValue("id", "account_abc")
@@ -30,6 +31,7 @@ func TestGetPasskeysHandler_Success(t *testing.T) {
 }
 
 func TestGetPasskeysHandler_NoAuth(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -41,6 +43,7 @@ func TestGetPasskeysHandler_NoAuth(t *testing.T) {
 }
 
 func TestAddPasskeyHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -58,6 +61,7 @@ func TestAddPasskeyHandler_Success(t *testing.T) {
 }
 
 func TestAddPasskeyHandler_AlreadyExists(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -75,6 +79,7 @@ func TestAddPasskeyHandler_AlreadyExists(t *testing.T) {
 }
 
 func TestAddPasskeyHandler_BadJSON(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -87,6 +92,7 @@ func TestAddPasskeyHandler_BadJSON(t *testing.T) {
 }
 
 func TestAddPasskeyHandler_NoAuth(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -98,6 +104,7 @@ func TestAddPasskeyHandler_NoAuth(t *testing.T) {
 }
 
 func TestUpdatePasskeyHandler_SignCountRegression(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -116,13 +123,14 @@ func TestUpdatePasskeyHandler_SignCountRegression(t *testing.T) {
 }
 
 func TestUpdatePasskeyHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
 	repo.EXPECT().
 		UpdatePasskey(gomock.Any(), "account_abc", "cred_1", gomock.Any()).
-		Return(&models.PasskeyCredential{CredentialID: "cred_1"}, nil)
+		Return(&models.PasskeyCredential{CredentialId: "cred_1"}, nil)
 
 	body := map[string]any{"sign_count": 5}
 	req := makeRequest(t, http.MethodPatch, "/v1/accounts/account_abc/passkeys/cred_1", body)
@@ -134,6 +142,7 @@ func TestUpdatePasskeyHandler_Success(t *testing.T) {
 }
 
 func TestUpdatePasskeyHandler_NotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -152,6 +161,7 @@ func TestUpdatePasskeyHandler_NotFound(t *testing.T) {
 }
 
 func TestDeletePasskeyHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -169,6 +179,7 @@ func TestDeletePasskeyHandler_Success(t *testing.T) {
 }
 
 func TestDeletePasskeyHandler_NotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)

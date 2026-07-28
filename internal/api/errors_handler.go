@@ -28,6 +28,9 @@ func sendAccountError(wtr http.ResponseWriter, req *http.Request, err error) {
 	case errors.Is(err, ErrPasskeyAlreadyExists):
 		httpErr.SendError(wtr, req, models.Err.PasskeyAlreadyExists)
 		return
+	case errors.Is(err, ErrEmailAlreadyExists):
+		httpErr.SendError(wtr, req, models.Err.EmailAlreadyExists)
+		return
 	case errors.Is(err, ErrAlreadyExists):
 		httpErr.SendError(wtr, req, models.Err.AlreadyExists)
 		return
@@ -51,6 +54,6 @@ func sendAccountError(wtr http.ResponseWriter, req *http.Request, err error) {
 		return
 	}
 
-	logger.Error("internal error", err, logger.Attr("account_id", accountID))
+	logger.Error("encountered internal error", err, logger.Attr("account_id", accountID))
 	httpErr.SendError(wtr, req, httpErr.Global.Internal)
 }

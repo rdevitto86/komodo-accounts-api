@@ -11,6 +11,7 @@ import (
 )
 
 func TestPasskeyPKSK(t *testing.T) {
+	t.Parallel()
 	if got, want := passkeyPK("user_123"), "ACCOUNT#user_123"; got != want {
 		t.Errorf("passkeyPK() = %q, want %q", got, want)
 	}
@@ -20,21 +21,21 @@ func TestPasskeyPKSK(t *testing.T) {
 }
 
 func TestPasskeyRecordMarshalRoundTrip(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
-	record := passkeyRecord{
-		PK: passkeyPK("user_123"),
-		SK: passkeySK("cred_abc"),
-		PasskeyCredential: models.PasskeyCredential{
-			CredentialID:   "cred_abc",
-			PublicKey:      "cG9zZXVkb2tleQ==",
-			SignCount:      4,
-			Transports:     []string{"internal", "hybrid"},
-			AAGUID:         "YWFndWlk",
-			BackupEligible: true,
-			BackupState:    false,
-			CreatedAt:      now,
-		},
-	}
+	transports := []string{"internal", "hybrid"}
+	aaguid := "YWFndWlk"
+
+	record := passkeyRecordFrom(passkeyPK("user_123"), passkeySK("cred_abc"), &models.PasskeyCredential{
+		CredentialId:   "cred_abc",
+		PublicKey:      "cG9zZXVkb2tleQ==",
+		SignCount:      4,
+		Transports:     &transports,
+		Aaguid:         &aaguid,
+		BackupEligible: true,
+		BackupState:    false,
+		CreatedAt:      now,
+	})
 
 	av, err := attributevalue.MarshalMap(record)
 	if err != nil {
@@ -67,6 +68,7 @@ func TestPasskeyRecordMarshalRoundTrip(t *testing.T) {
 }
 
 func TestCreatePasskey_RequiresCredentialID(t *testing.T) {
+	t.Parallel()
 	cred := &models.PasskeyCredential{PublicKey: "cG9zZXVkb2tleQ=="}
 	r := &Repo{}
 	if err := r.CreatePasskey(context.Background(), "user_123", cred); err == nil {

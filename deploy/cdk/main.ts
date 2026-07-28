@@ -128,7 +128,8 @@ export const buildAccountService = (stack: cdk.Stack, { vpc, cluster, logGroup, 
       AWS_REGION: cfg.regions[0].region,
       DYNAMODB_TABLE: cfg.accountsTable,
       AWS_SECRET_PATH: cfg.secretPath ?? '',
-      S3_AVATAR_BUCKET: `komodo-accounts-avatars-${cfg.env}`,
+      S3_AVATAR_BUCKET: avatarsBucketName(cfg.env),
+      S3_EXPORT_BUCKET: exportsBucketName(cfg.env),
     },
   });
 
@@ -281,10 +282,13 @@ export const buildAccountsTable = (stack: cdk.Stack, env: string, accountsTable:
   return table;
 };
 
+export const exportsBucketName = (env: string): string => `komodo-accounts-exports-${env}`;
+export const avatarsBucketName = (env: string): string => `komodo-accounts-avatars-${env}`;
+
 export const buildAccountExportsBucket = (stack: cdk.Stack, env: string, taskRole: iam.IRole): s3.Bucket => {
   const isProd = env !== 'dev';
   const bucket = new s3.Bucket(stack, 'AccountExports', {
-    bucketName: `komodo-accounts-exports-${env}`,
+    bucketName: exportsBucketName(env),
     blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
     enforceSSL: true,
     encryption: s3.BucketEncryption.S3_MANAGED,
@@ -300,7 +304,7 @@ export const buildAccountExportsBucket = (stack: cdk.Stack, env: string, taskRol
 export const buildAvatarsBucket = (stack: cdk.Stack, env: string, taskRole: iam.IRole): s3.Bucket => {
   const isProd = env !== 'dev';
   const bucket = new s3.Bucket(stack, 'AccountAvatars', {
-    bucketName: `komodo-accounts-avatars-${env}`,
+    bucketName: avatarsBucketName(env),
     blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
     enforceSSL: true,
     encryption: s3.BucketEncryption.S3_MANAGED,
@@ -343,7 +347,7 @@ export const buildStack = (stack: cdk.Stack, cfg: AccountEnvConfig): void => {
   new cdk.CfnOutput(stack, 'DomainName', { value: cfg.domainName });
   new cdk.CfnOutput(stack, 'AccountsTableName', { value: cfg.accountsTable });
   new cdk.CfnOutput(stack, 'AccountsTableStreamArn', { value: table.tableStreamArn! });
-  new cdk.CfnOutput(stack, 'AvatarsBucketName', { value: `komodo-accounts-avatars-${cfg.env}` });
+  new cdk.CfnOutput(stack, 'AvatarsBucketName', { value: avatarsBucketName(cfg.env) });
 
   const waf = buildWaf(stack, svc.alb);
   buildAccountAlarms(stack, logGroup, svc.alb);

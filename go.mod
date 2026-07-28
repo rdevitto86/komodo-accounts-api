@@ -9,11 +9,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.59.0
 	github.com/aws/constructs-go/constructs/v10 v10.7.1
 	github.com/aws/jsii-runtime-go v1.139.0
-	github.com/rdevitto86/komodo-forge-sdk-go v0.22.1
+	github.com/oapi-codegen/runtime v1.4.1
+	github.com/rdevitto86/komodo-forge-sdk-go v0.25.1
 	github.com/segmentio/ksuid v1.0.4
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/mock v0.6.0
-	golang.org/x/time v0.15.0
 )
 
 require (

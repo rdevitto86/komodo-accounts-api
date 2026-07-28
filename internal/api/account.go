@@ -23,6 +23,7 @@ import (
 var (
 	ErrNotFound                    = errors.New("not found")
 	ErrAlreadyExists               = errors.New("already exists")
+	ErrEmailAlreadyExists          = errors.New("email already registered")
 	ErrPasskeyAlreadyExists        = errors.New("passkey already exists")
 	ErrPasskeySignCountRegression  = errors.New("passkey sign count regression")
 	ErrForbiddenNamespace          = errors.New("forbidden namespace")
@@ -46,45 +47,29 @@ func (s *Service) GetProfile(ctx context.Context, accountID string) (*models.Acc
 		}
 		return nil, fmt.Errorf("failed to get account profile: %w", err)
 	}
-	s.profileCache.Set(accountID, account, 60*time.Second)
+	s.profileCache.Set(accountID, account, s.cacheTTL)
 	return account, nil
 }
 
-func (s *Service) CreateAccount(ctx context.Context, account *models.Account) error {
-	if account.AccountID == "" || account.Email == "" || account.FirstName == "" || account.LastName == "" {
-		return fmt.Errorf("invalid account: %w", errors.New("account_id, email, first_name, and last_name are required"))
+func (s *Service) CreateAccount(ctx context.Context, accountID string, req *models.CreateAccountRequest) (*models.Account, error) {
+	if accountID == "" || req.Email == "" || req.FirstName == "" || req.LastName == "" {
+		return nil, fmt.Errorf("account_id, email, first_name, and last_name are required: %w", ErrInvalidInput)
 	}
 
-	now := time.Now().UTC()
-	account.CreatedAt = now
-	account.UpdatedAt = now
-	if account.AuthMethods == nil {
-		account.AuthMethods = []string{}
-	}
-	if err := s.repo.CreateAccount(ctx, account); err != nil {
-		if errors.Is(err, db.ErrAlreadyExists) {
-			return fmt.Errorf("failed to create account: %w", ErrAlreadyExists)
+	created, err := s.repo.CreateAccount(ctx, accountID, req)
+	if err != nil {
+		if errors.Is(err, db.ErrEmailAlreadyExists) {
+			return nil, fmt.Errorf("failed to create account: %w", ErrEmailAlreadyExists)
 		}
-		return fmt.Errorf("failed to create account: %w", err)
+		if errors.Is(err, db.ErrAlreadyExists) {
+			return nil, fmt.Errorf("failed to create account: %w", ErrAlreadyExists)
+		}
+		return nil, fmt.Errorf("failed to create account: %w", err)
 	}
-	return nil
+	return created, nil
 }
 
-func (s *Service) UpdateProfile(ctx context.Context, accountID string, update *models.Account) (*models.Account, error) {
-	req := &models.UpdateProfileRequest{}
-	if update.Phone != "" {
-		req.Phone = &update.Phone
-	}
-	if update.FirstName != "" {
-		req.FirstName = &update.FirstName
-	}
-	if update.LastName != "" {
-		req.LastName = &update.LastName
-	}
-	if update.AvatarURL != "" {
-		req.AvatarURL = &update.AvatarURL
-	}
-
+func (s *Service) UpdateProfile(ctx context.Context, accountID string, req *models.UpdateAccountRequest) (*models.Account, error) {
 	updated, err := s.repo.UpdateAccount(ctx, accountID, req)
 	if err != nil {
 		if isNotFound(err) {
@@ -104,7 +89,7 @@ func (s *Service) DeleteProfile(ctx context.Context, accountID string) error {
 			return fmt.Errorf("failed to get account profile: %w", profileErr)
 		}
 	} else {
-		email = strings.ToLower(profile.Email)
+		email = strings.ToLower(string(profile.Email))
 	}
 
 	if err := s.repo.DeleteAccount(ctx, accountID); err != nil {
@@ -126,7 +111,7 @@ func (s *Service) SoftDeleteProfile(ctx context.Context, accountID string) error
 	}
 	s.profileCache.Delete(accountID)
 	if profile, err := s.repo.GetAccount(ctx, accountID); err == nil {
-		s.credentialsCache.Delete(strings.ToLower(profile.Email))
+		s.credentialsCache.Delete(strings.ToLower(string(profile.Email)))
 	}
 	return nil
 }
@@ -160,7 +145,7 @@ func (s *Service) AddAddress(ctx context.Context, accountID string, addr *models
 		return fmt.Errorf("failed to add address: %w", err)
 	}
 	if addr.IsDefault {
-		if err := s.repo.SetAddressDefault(ctx, accountID, addr.AddressID); err != nil {
+		if err := s.repo.SetAddressDefault(ctx, accountID, addr.AddressId); err != nil {
 			return fmt.Errorf("failed to enforce default address: %w", err)
 		}
 	}
@@ -214,7 +199,7 @@ func (s *Service) UpsertPayment(ctx context.Context, accountID string, pm *model
 		return fmt.Errorf("failed to upsert payment method: %w", err)
 	}
 	if pm.IsDefault {
-		if err := s.repo.SetPaymentDefault(ctx, accountID, pm.PaymentID); err != nil {
+		if err := s.repo.SetPaymentDefault(ctx, accountID, pm.PaymentId); err != nil {
 			return fmt.Errorf("failed to enforce default payment method: %w", err)
 		}
 	}
@@ -242,9 +227,9 @@ func (s *Service) GetPreferences(ctx context.Context, accountID string) (*models
 	return prefs, nil
 }
 
-func (s *Service) UpdatePreferences(ctx context.Context, accountID string, req *models.UpdatePreferencesRequest) error {
+func (s *Service) UpdatePreferences(ctx context.Context, accountID string, req *models.Preferences) error {
 	if req.Communication != nil {
-		for k := range req.Communication {
+		for k := range *req.Communication {
 			if !models.ValidCommunicationChannels[k] {
 				return fmt.Errorf("invalid communication channel %q: %w", k, ErrInvalidCommunicationChannel)
 			}
@@ -281,16 +266,16 @@ func (s *Service) GetCredentials(ctx context.Context, email string) (*models.Cre
 		}
 		return nil, fmt.Errorf("failed to get account credentials: %w", err)
 	}
-	s.credentialsCache.Set(cacheKey, creds, 60*time.Second)
+	s.credentialsCache.Set(cacheKey, creds, s.cacheTTL)
 	return creds, nil
 }
 
 func (s *Service) UpdateCredentials(ctx context.Context, accountID string, req *models.UpdateCredentialsRequest) error {
 	if accountID == "" {
-		return fmt.Errorf("invalid credentials update: %w", errors.New("account_id is required"))
+		return fmt.Errorf("account_id is required: %w", ErrInvalidInput)
 	}
-	if req.PasswordHash == "" && len(req.AuthMethods) == 0 {
-		return fmt.Errorf("invalid credentials update: %w", errors.New("at least one of password_hash or auth_methods is required"))
+	if req.PasswordHash == nil && req.AuthMethods == nil {
+		return fmt.Errorf("at least one of password_hash or auth_methods is required: %w", ErrInvalidInput)
 	}
 	if err := s.repo.UpdateAccountCredentials(ctx, accountID, req); err != nil {
 		if isNotFound(err) {
@@ -303,7 +288,7 @@ func (s *Service) UpdateCredentials(ctx context.Context, accountID string, req *
 		logger.Warn("failed to resolve account email for cache invalidation", err, logger.Attr("account_id", accountID))
 		return nil
 	}
-	s.credentialsCache.Delete(strings.ToLower(account.Email))
+	s.credentialsCache.Delete(strings.ToLower(string(account.Email)))
 	return nil
 }
 
@@ -380,11 +365,15 @@ func (s *Service) GetSettings(ctx context.Context, accountID string) (*models.Ac
 
 func (s *Service) UpdateSettings(ctx context.Context, accountID string, req *models.UpdateSettingsRequest) (*models.AccountSettings, error) {
 	if req.Status != nil {
-		if err := validateStatus(*req.Status); err != nil {
+		if err := validateStatus(string(*req.Status)); err != nil {
 			return nil, err
 		}
 	}
-	if err := s.repo.UpdateSettingsPartial(ctx, accountID, req, req.Version); err != nil {
+	version := 0
+	if req.Version != nil {
+		version = *req.Version
+	}
+	if err := s.repo.UpdateSettingsPartial(ctx, accountID, req, version); err != nil {
 		if errors.Is(err, db.ErrVersionConflict) {
 			return nil, fmt.Errorf("failed to update settings due to version conflict: %w", ErrVersionConflict)
 		}
@@ -418,18 +407,34 @@ var tagNamespaceMap = map[string]string{
 
 var tagRE = regexp.MustCompile(`^[a-z0-9._]{1,32}$`)
 
+func optSlice[T any](p *[]T) []T {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func validateTagNamespace(prefix string, add, remove []string) error {
+	for _, tag := range append(append([]string{}, add...), remove...) {
+		if !tagRE.MatchString(tag) {
+			return fmt.Errorf("invalid tag %q: must match [a-z0-9._]{1,32}: %w", tag, ErrForbiddenNamespace)
+		}
+		if !strings.HasPrefix(tag, prefix) {
+			return fmt.Errorf("tag %q not in namespace %q: %w", tag, prefix, ErrForbiddenNamespace)
+		}
+	}
+	return nil
+}
+
 func (s *Service) UpdateSettingsTags(ctx context.Context, accountID, callerService string, req *models.UpdateSettingsTagsRequest) (*models.AccountSettings, error) {
 	prefix, ok := tagNamespaceMap[callerService]
 	if !ok {
 		return nil, fmt.Errorf("unknown service %q: %w", callerService, ErrForbiddenNamespace)
 	}
-	for _, tag := range append(req.Add, req.Remove...) {
-		if !tagRE.MatchString(tag) {
-			return nil, fmt.Errorf("invalid tag %q: must match [a-z0-9._]{1,32}: %w", tag, ErrForbiddenNamespace)
-		}
-		if !strings.HasPrefix(tag, prefix) {
-			return nil, fmt.Errorf("tag %q not in namespace %q: %w", tag, prefix, ErrForbiddenNamespace)
-		}
+	add := optSlice(req.Add)
+	remove := optSlice(req.Remove)
+	if err := validateTagNamespace(prefix, add, remove); err != nil {
+		return nil, err
 	}
 
 	current, err := s.repo.GetSettings(ctx, accountID)
@@ -437,18 +442,22 @@ func (s *Service) UpdateSettingsTags(ctx context.Context, accountID, callerServi
 		if !isNotFound(err) {
 			return nil, fmt.Errorf("failed to load settings for tag mutation: %w", err)
 		}
-		defaults := &models.AccountSettings{Status: "active"}
+		defaults := &models.AccountSettings{Status: models.AccountSettingsStatus("active")}
 		if createErr := s.repo.UpdateSettings(ctx, accountID, defaults); createErr != nil {
 			return nil, fmt.Errorf("failed to initialize settings for tag mutation: %w", createErr)
 		}
 		current = defaults
 	}
 
-	if expectedTagCount(current.Tags, req.Add, req.Remove) > 20 {
+	if expectedTagCount(optSlice(current.Tags), add, remove) > 20 {
 		return nil, fmt.Errorf("tag limit exceeded (max 20): %w", ErrForbiddenNamespace)
 	}
 
-	if err := s.repo.MutateSettingsTags(ctx, accountID, req, req.Version); err != nil {
+	tagVersion := 0
+	if req.Version != nil {
+		tagVersion = *req.Version
+	}
+	if err := s.repo.MutateSettingsTags(ctx, accountID, req, tagVersion); err != nil {
 		if errors.Is(err, db.ErrVersionConflict) {
 			return nil, fmt.Errorf("failed to update settings tags due to version conflict: %w", ErrVersionConflict)
 		}
@@ -535,7 +544,7 @@ func (s *Service) gatherProfileExportData(ctx context.Context, accountID string)
 
 func (s *Service) ExportProfile(ctx context.Context, accountID string) (*models.ExportProfileResponse, error) {
 	if s.s3 == nil {
-		return nil, fmt.Errorf("export not configured")
+		return nil, errors.New("export not configured")
 	}
 
 	profile, err := s.repo.GetAccount(ctx, accountID)
@@ -553,11 +562,19 @@ func (s *Service) ExportProfile(ctx context.Context, accountID string) (*models.
 
 	passkeyExports := make([]models.PasskeyExport, len(d.passkeys))
 	for i, pk := range d.passkeys {
+		transports := []string{}
+		if pk.Transports != nil {
+			transports = *pk.Transports
+		}
+		aaguid := ""
+		if pk.Aaguid != nil {
+			aaguid = *pk.Aaguid
+		}
 		passkeyExports[i] = models.PasskeyExport{
-			CredentialID:   pk.CredentialID,
+			CredentialID:   pk.CredentialId,
 			SignCount:      pk.SignCount,
-			Transports:     pk.Transports,
-			AAGUID:         pk.AAGUID,
+			Transports:     transports,
+			AAGUID:         aaguid,
 			BackupEligible: pk.BackupEligible,
 			BackupState:    pk.BackupState,
 			CreatedAt:      pk.CreatedAt,
@@ -587,15 +604,16 @@ func (s *Service) ExportProfile(ctx context.Context, accountID string) (*models.
 		return nil, fmt.Errorf("failed to write export to s3: %w", err)
 	}
 
-	downloadURL, err := s.s3.PresignGet(ctx, s.exportBucket, key, 15*time.Minute)
+	downloadURL, err := s.s3.PresignGet(ctx, s.exportBucket, key, s.presignTTL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate export download url: %w", err)
 	}
 
+	expiresAt := time.Now().UTC().Add(s.presignTTL)
 	return &models.ExportProfileResponse{
-		ExportID:    exportID,
-		DownloadURL: downloadURL,
-		ExpiresAt:   time.Now().UTC().Add(15 * time.Minute).Format(time.RFC3339),
+		ExportId:    &exportID,
+		DownloadUrl: &downloadURL,
+		ExpiresAt:   &expiresAt,
 	}, nil
 }
 
@@ -628,7 +646,7 @@ type unsubPayload struct {
 
 func (s *Service) MintUnsubscribeToken(ctx context.Context, accountID, channel string) (string, error) {
 	if len(s.unsubscribeKey) == 0 {
-		return "", fmt.Errorf("unsubscribe key not configured")
+		return "", errors.New("unsubscribe key not configured")
 	}
 	if !models.ValidCommunicationChannels[channel] {
 		return "", fmt.Errorf("invalid unsubscribe channel %q: %w", channel, ErrInvalidUnsubscribeChannel)
@@ -642,7 +660,7 @@ func (s *Service) MintUnsubscribeToken(ctx context.Context, accountID, channel s
 	payload, err := json.Marshal(unsubPayload{
 		AccountID: accountID,
 		Channel:   channel,
-		Exp:       time.Now().Add(30 * 24 * time.Hour).Unix(),
+		Exp:       time.Now().Add(s.unsubTokenTTL).Unix(),
 		JTI:       ksuid.New().String(),
 	})
 	if err != nil {
@@ -675,12 +693,32 @@ func parseUnsubToken(payloadBytes []byte) (*unsubPayload, error) {
 	return &p, nil
 }
 
-func (s *Service) GetAvatarUploadURL(ctx context.Context, accountID string) (string, error) {
+const MaxAvatarBytes = 2 * 1024 * 1024
+
+var ValidAvatarContentTypes = map[string]bool{
+	"image/jpeg": true,
+	"image/png":  true,
+	"image/webp": true,
+}
+
+func (s *Service) GetAvatarUploadURL(
+	ctx context.Context, accountID, contentType string, contentLength int64,
+) (string, error) {
 	if s.s3 == nil {
-		return "", fmt.Errorf("avatar upload not configured")
+		return "", errors.New("avatar upload not configured")
 	}
+	if !ValidAvatarContentTypes[contentType] {
+		return "", fmt.Errorf("invalid avatar content type %q: %w", contentType, ErrInvalidInput)
+	}
+	if contentLength <= 0 || contentLength > MaxAvatarBytes {
+		return "", fmt.Errorf(
+			"avatar size %d bytes outside allowed range (1..%d): %w",
+			contentLength, MaxAvatarBytes, ErrInvalidInput,
+		)
+	}
+
 	key := "avatars/" + accountID + "/avatar"
-	url, err := s.s3.PresignPut(ctx, s.avatarBucket, key, 15*time.Minute, "", 0)
+	url, err := s.s3.PresignPut(ctx, s.avatarBucket, key, s.presignTTL, contentType, contentLength)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate avatar upload url: %w", err)
 	}
@@ -689,7 +727,7 @@ func (s *Service) GetAvatarUploadURL(ctx context.Context, accountID string) (str
 
 func (s *Service) VerifyAndRecordUnsubscribe(ctx context.Context, token, ipAddr, userAgent string) error {
 	if len(s.unsubscribeKey) == 0 {
-		return fmt.Errorf("unsubscribe key not configured")
+		return errors.New("unsubscribe key not configured")
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil || len(raw) < 32 {
@@ -719,17 +757,17 @@ func (s *Service) VerifyAndRecordUnsubscribe(ctx context.Context, token, ipAddr,
 	if err != nil && !errors.Is(err, db.ErrNotFound) {
 		return fmt.Errorf("failed to check consent log for replay: %w", err)
 	}
-	if existing != nil && existing.SourceRef == p.JTI {
+	if existing != nil && existing.SourceRef != nil && *existing.SourceRef == p.JTI {
 		return nil
 	}
 
 	entry := &models.ConsentLog{
-		Channel:   p.Channel,
-		Action:    "opt_out",
+		Channel:   models.ConsentLogChannel(p.Channel),
+		Action:    models.ConsentLogAction("opt_out"),
 		Source:    "unsubscribe_link",
-		SourceRef: p.JTI,
-		IPAddress: ipAddr,
-		UserAgent: userAgent,
+		SourceRef: &p.JTI,
+		IpAddress: &ipAddr,
+		UserAgent: &userAgent,
 	}
 	if err := s.repo.AppendConsentLog(ctx, p.AccountID, entry); err != nil {
 		return fmt.Errorf("failed to record unsubscribe: %w", err)

@@ -21,11 +21,12 @@ import (
 )
 
 func TestUnsubscribeHandler_ValidToken(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountID: "cust_1"}, nil)
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountId: "cust_1"}, nil)
 	token, err := svc.MintUnsubscribeToken(context.Background(), "cust_1", "email")
 	require.NoError(t, err)
 
@@ -39,6 +40,7 @@ func TestUnsubscribeHandler_ValidToken(t *testing.T) {
 }
 
 func TestUnsubscribeHandler_InvalidToken_Returns400(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -50,6 +52,7 @@ func TestUnsubscribeHandler_InvalidToken_Returns400(t *testing.T) {
 }
 
 func TestUnsubscribeHandler_ExpiredToken_Returns400(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -67,11 +70,12 @@ func TestUnsubscribeHandler_ExpiredToken_Returns400(t *testing.T) {
 }
 
 func TestUnsubscribeHandler_ReplayProtection(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountID: "cust_1"}, nil)
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountId: "cust_1"}, nil)
 	token, err := svc.MintUnsubscribeToken(context.Background(), "cust_1", "email")
 	require.NoError(t, err)
 
@@ -103,11 +107,12 @@ func TestUnsubscribeHandler_ReplayProtection(t *testing.T) {
 }
 
 func TestMintUnsubscribeTokenHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountID: "cust_1"}, nil)
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountId: "cust_1"}, nil)
 
 	body := map[string]any{"channel": "email"}
 	req := makeRequest(t, http.MethodPost, "/v1/accounts/cust_1/unsubscribe-token", body)
@@ -119,6 +124,7 @@ func TestMintUnsubscribeTokenHandler_Success(t *testing.T) {
 }
 
 func TestMintUnsubscribeTokenHandler_NoPathID(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -131,6 +137,7 @@ func TestMintUnsubscribeTokenHandler_NoPathID(t *testing.T) {
 }
 
 func TestMintUnsubscribeTokenHandler_InvalidChannel_Returns400(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -144,6 +151,7 @@ func TestMintUnsubscribeTokenHandler_InvalidChannel_Returns400(t *testing.T) {
 }
 
 func TestUnsubscribeHandler_InvalidChannel_Returns400(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -161,6 +169,7 @@ func TestUnsubscribeHandler_InvalidChannel_Returns400(t *testing.T) {
 }
 
 func TestUnsubscribeHandler_MissingJTI_Returns400(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -177,6 +186,7 @@ func TestUnsubscribeHandler_MissingJTI_Returns400(t *testing.T) {
 }
 
 func TestMintUnsubscribeTokenHandler_NonExistentAccount_Returns404(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)

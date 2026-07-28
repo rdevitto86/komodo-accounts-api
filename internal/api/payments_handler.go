@@ -16,7 +16,7 @@ func (s *Service) GetPaymentsHandler(wtr http.ResponseWriter, req *http.Request)
 		accountID = accountIDFromJWT(req)
 	}
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -36,7 +36,7 @@ func (s *Service) GetPaymentsHandler(wtr http.ResponseWriter, req *http.Request)
 func (s *Service) UpsertPaymentHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -52,7 +52,7 @@ func (s *Service) UpsertPaymentHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "payment"))
+	logger.Info("updated account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "payment"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, input)
@@ -62,7 +62,7 @@ func (s *Service) UpsertPaymentHandler(wtr http.ResponseWriter, req *http.Reques
 func (s *Service) DeletePaymentHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -78,6 +78,6 @@ func (s *Service) DeletePaymentHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "payment"))
+	logger.Info("deleted account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "payment"))
 	wtr.WriteHeader(http.StatusNoContent)
 }

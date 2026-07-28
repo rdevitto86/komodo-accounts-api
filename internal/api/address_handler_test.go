@@ -14,21 +14,23 @@ import (
 )
 
 func TestGetAddressesHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
 	repo.EXPECT().
 		GetAccountAddresses(gomock.Any(), "account_abc").
-		Return([]models.Address{{AddressID: "addr_1", Line1: "123 Main St", City: "Springfield", State: "IL", ZipCode: "62701", Country: "US"}}, nil)
+		Return([]models.Address{{AddressId: "addr_1", Line1: "123 Main St", City: "Springfield", State: "IL", ZipCode: "62701", Country: "US"}}, nil)
 
-	req := withAccountID(makeRequest(t, http.MethodGet, "/v1/me/addresses", nil), "account_abc")
+	req := withAccountId(makeRequest(t, http.MethodGet, "/v1/me/addresses", nil), "account_abc")
 	rr := httptest.NewRecorder()
 	svc.GetAddressesHandler(rr, req)
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
 func TestGetAddressesHandler_NoAuth(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -40,6 +42,7 @@ func TestGetAddressesHandler_NoAuth(t *testing.T) {
 }
 
 func TestAddAddressHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -49,25 +52,27 @@ func TestAddAddressHandler_Success(t *testing.T) {
 		Return(nil)
 
 	body := map[string]any{"line1": "123 Main St", "city": "Springfield", "state": "IL", "zip_code": "62701", "country": "US"}
-	req := withAccountID(makeRequest(t, http.MethodPost, "/v1/me/addresses", body), "account_abc")
+	req := withAccountId(makeRequest(t, http.MethodPost, "/v1/me/addresses", body), "account_abc")
 	rr := httptest.NewRecorder()
 	svc.AddAddressHandler(rr, req)
 	assert.Equal(t, http.StatusCreated, rr.Code)
 }
 
 func TestAddAddressHandler_BadJSON(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
 
 	req, _ := http.NewRequest(http.MethodPost, "/v1/me/addresses", strings.NewReader("not-json"))
-	req = withAccountID(req, "account_abc")
+	req = withAccountId(req, "account_abc")
 	rr := httptest.NewRecorder()
 	svc.AddAddressHandler(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
 func TestAddAddressHandler_NoAuth(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -79,6 +84,7 @@ func TestAddAddressHandler_NoAuth(t *testing.T) {
 }
 
 func TestUpdateAddressHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -88,7 +94,7 @@ func TestUpdateAddressHandler_Success(t *testing.T) {
 		Return(nil)
 
 	body := map[string]any{"line1": "456 Elm St", "city": "Springfield", "state": "IL", "zip_code": "62702", "country": "US"}
-	req := withAccountID(makeRequest(t, http.MethodPut, "/v1/me/addresses/addr_1", body), "account_abc")
+	req := withAccountId(makeRequest(t, http.MethodPut, "/v1/me/addresses/addr_1", body), "account_abc")
 	req.SetPathValue("id", "addr_1")
 	rr := httptest.NewRecorder()
 	svc.UpdateAddressHandler(rr, req)
@@ -96,6 +102,7 @@ func TestUpdateAddressHandler_Success(t *testing.T) {
 }
 
 func TestUpdateAddressHandler_NotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -105,7 +112,7 @@ func TestUpdateAddressHandler_NotFound(t *testing.T) {
 		Return(db.ErrNotFound)
 
 	body := map[string]any{"line1": "456 Elm St", "city": "Springfield", "state": "IL", "zip_code": "62702", "country": "US"}
-	req := withAccountID(makeRequest(t, http.MethodPut, "/v1/me/addresses/addr_missing", body), "account_abc")
+	req := withAccountId(makeRequest(t, http.MethodPut, "/v1/me/addresses/addr_missing", body), "account_abc")
 	req.SetPathValue("id", "addr_missing")
 	rr := httptest.NewRecorder()
 	svc.UpdateAddressHandler(rr, req)
@@ -113,6 +120,7 @@ func TestUpdateAddressHandler_NotFound(t *testing.T) {
 }
 
 func TestDeleteAddressHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -121,7 +129,7 @@ func TestDeleteAddressHandler_Success(t *testing.T) {
 		DeleteAddress(gomock.Any(), "account_abc", "addr_1").
 		Return(nil)
 
-	req := withAccountID(makeRequest(t, http.MethodDelete, "/v1/me/addresses/addr_1", nil), "account_abc")
+	req := withAccountId(makeRequest(t, http.MethodDelete, "/v1/me/addresses/addr_1", nil), "account_abc")
 	req.SetPathValue("id", "addr_1")
 	rr := httptest.NewRecorder()
 	svc.DeleteAddressHandler(rr, req)
@@ -129,6 +137,7 @@ func TestDeleteAddressHandler_Success(t *testing.T) {
 }
 
 func TestDeleteAddressHandler_NotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -137,7 +146,7 @@ func TestDeleteAddressHandler_NotFound(t *testing.T) {
 		DeleteAddress(gomock.Any(), "account_abc", "addr_missing").
 		Return(db.ErrNotFound)
 
-	req := withAccountID(makeRequest(t, http.MethodDelete, "/v1/me/addresses/addr_missing", nil), "account_abc")
+	req := withAccountId(makeRequest(t, http.MethodDelete, "/v1/me/addresses/addr_missing", nil), "account_abc")
 	req.SetPathValue("id", "addr_missing")
 	rr := httptest.NewRecorder()
 	svc.DeleteAddressHandler(rr, req)

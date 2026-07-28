@@ -19,7 +19,7 @@ func (s *Service) UnsubscribeHandler(wtr http.ResponseWriter, req *http.Request)
 	}
 
 	ip := httpReq.GetClientKey(req)
-	ua := req.Header.Get("Account-Agent")
+	ua := req.Header.Get("User-Agent")
 
 	if err := s.VerifyAndRecordUnsubscribe(req.Context(), input.Token, ip, ua); err != nil {
 		sendAccountError(wtr, req, err)
@@ -33,7 +33,7 @@ func (s *Service) UnsubscribeHandler(wtr http.ResponseWriter, req *http.Request)
 func (s *Service) MintUnsubscribeTokenHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := req.PathValue("id")
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -52,5 +52,5 @@ func (s *Service) MintUnsubscribeTokenHandler(wtr http.ResponseWriter, req *http
 
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusCreated)
-	writeJSON(wtr, models.MintUnsubscribeTokenResponse{Token: token})
+	writeJSON(wtr, models.MintUnsubscribeTokenResponse{Token: &token})
 }

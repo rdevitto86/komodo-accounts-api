@@ -17,6 +17,7 @@ import (
 )
 
 func TestDemoteAndPromoteDefault_DemotesCorrectItemRegardlessOfScanOrder(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -61,6 +62,7 @@ func TestDemoteAndPromoteDefault_DemotesCorrectItemRegardlessOfScanOrder(t *test
 }
 
 func TestDemoteAndPromoteDefault_NoExistingDefault_OnlyPromotes(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -92,6 +94,7 @@ func TestDemoteAndPromoteDefault_NoExistingDefault_OnlyPromotes(t *testing.T) {
 }
 
 func TestDemoteAndPromoteDefault_DemotesAllLegacyDuplicates(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -124,6 +127,7 @@ func TestDemoteAndPromoteDefault_DemotesAllLegacyDuplicates(t *testing.T) {
 }
 
 func TestSetAddressDefault_TargetMissing_MapsToNotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -153,6 +157,7 @@ func TestSetAddressDefault_TargetMissing_MapsToNotFound(t *testing.T) {
 }
 
 func TestSetPaymentDefault_TargetMissing_MapsToNotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -181,6 +186,7 @@ func TestSetPaymentDefault_TargetMissing_MapsToNotFound(t *testing.T) {
 }
 
 func TestDemoteAndPromoteDefault_NonConditionalCancellation_PropagatesAsRetryable(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -208,6 +214,7 @@ func TestDemoteAndPromoteDefault_NonConditionalCancellation_PropagatesAsRetryabl
 }
 
 func TestSetAddressDefault_WrapsQueryError(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)
@@ -222,6 +229,7 @@ func TestSetAddressDefault_WrapsQueryError(t *testing.T) {
 }
 
 func TestSetPaymentDefault_WrapsTransactError(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	client := mocks.NewMockAPI(ctrl)

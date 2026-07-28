@@ -16,6 +16,7 @@ import (
 )
 
 func TestGetSettingsHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -32,6 +33,7 @@ func TestGetSettingsHandler_Success(t *testing.T) {
 }
 
 func TestGetSettingsHandler_NotFound(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -48,6 +50,7 @@ func TestGetSettingsHandler_NotFound(t *testing.T) {
 }
 
 func TestGetSettingsHandler_NoAuth(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -59,6 +62,7 @@ func TestGetSettingsHandler_NoAuth(t *testing.T) {
 }
 
 func TestUpdateSettingsHandler_Success(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -80,6 +84,7 @@ func TestUpdateSettingsHandler_Success(t *testing.T) {
 }
 
 func TestUpdateSettingsHandler_BadJSON(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -92,6 +97,7 @@ func TestUpdateSettingsHandler_BadJSON(t *testing.T) {
 }
 
 func TestUpdateSettingsHandler_NoAuth(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -103,6 +109,7 @@ func TestUpdateSettingsHandler_NoAuth(t *testing.T) {
 }
 
 func TestUpdateSettingsHandler_PartialUpdate_PreservesFields(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -110,10 +117,10 @@ func TestUpdateSettingsHandler_PartialUpdate_PreservesFields(t *testing.T) {
 	changedAt := time.Now().UTC()
 	merged := &models.AccountSettings{
 		Status:          "suspended",
-		StatusReason:    "abuse",
+		StatusReason:    ptr("abuse"),
 		StatusChangedAt: &changedAt,
-		Tags:            []string{"loyalty.vip"},
-		EmailVerified:   true,
+		Tags:            ptr([]string{"loyalty.vip"}),
+		EmailVerified:   ptr(true),
 	}
 
 	repo.EXPECT().
@@ -133,13 +140,14 @@ func TestUpdateSettingsHandler_PartialUpdate_PreservesFields(t *testing.T) {
 
 	var resp models.AccountSettings
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-	assert.Equal(t, []string{"loyalty.vip"}, resp.Tags)
-	assert.True(t, resp.EmailVerified)
-	assert.Equal(t, "suspended", resp.Status)
+	assert.Equal(t, []string{"loyalty.vip"}, deref(resp.Tags))
+	assert.True(t, deref(resp.EmailVerified))
+	assert.Equal(t, models.AccountSettingsStatus("suspended"), resp.Status)
 	assert.NotNil(t, resp.StatusChangedAt)
 }
 
 func TestUpdateSettingsHandler_StatusChange_StampsStatusChangedAt(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -166,6 +174,7 @@ func TestUpdateSettingsHandler_StatusChange_StampsStatusChangedAt(t *testing.T) 
 }
 
 func TestUpdateSettingsHandler_InvalidStatus_Returns400(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -180,6 +189,7 @@ func TestUpdateSettingsHandler_InvalidStatus_Returns400(t *testing.T) {
 }
 
 func TestUpdateSettingsTagsHandler_ValidNamespace(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -192,7 +202,7 @@ func TestUpdateSettingsTagsHandler_ValidNamespace(t *testing.T) {
 		Return(nil)
 	repo.EXPECT().
 		GetSettings(gomock.Any(), "cust_1").
-		Return(&models.AccountSettings{Status: "active", Tags: []string{"loyalty.vip"}}, nil)
+		Return(&models.AccountSettings{Status: "active", Tags: ptr([]string{"loyalty.vip"})}, nil)
 
 	body := map[string]any{"add": []string{"loyalty.vip"}, "remove": []string{}}
 	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings/tags", body)
@@ -204,6 +214,7 @@ func TestUpdateSettingsTagsHandler_ValidNamespace(t *testing.T) {
 }
 
 func TestUpdateSettingsTagsHandler_ForbiddenNamespace(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -218,6 +229,7 @@ func TestUpdateSettingsTagsHandler_ForbiddenNamespace(t *testing.T) {
 }
 
 func TestUpdateSettingsHandler_StatusMutation_WithoutScope_Returns403(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, _ := newTestService(t, ctrl)
@@ -231,6 +243,7 @@ func TestUpdateSettingsHandler_StatusMutation_WithoutScope_Returns403(t *testing
 }
 
 func TestUpdateSettingsHandler_StatusMutation_WithServiceScope_Returns200(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
@@ -248,13 +261,14 @@ func TestUpdateSettingsHandler_StatusMutation_WithServiceScope_Returns200(t *tes
 }
 
 func TestUpdateSettingsHandler_VerifiedFlagOnly_WithoutScope_Returns200(t *testing.T) {
+	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
 	emailVerified := true
 	repo.EXPECT().UpdateSettingsPartial(gomock.Any(), "cust_1", gomock.Any(), gomock.Any()).Return(nil)
-	repo.EXPECT().GetSettings(gomock.Any(), "cust_1").Return(&models.AccountSettings{EmailVerified: true}, nil)
+	repo.EXPECT().GetSettings(gomock.Any(), "cust_1").Return(&models.AccountSettings{EmailVerified: ptr(true)}, nil)
 
 	body := map[string]any{"email_verified": emailVerified}
 	req := makeRequest(t, http.MethodPut, "/v1/accounts/cust_1/settings", body)

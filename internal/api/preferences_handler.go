@@ -15,7 +15,7 @@ func (s *Service) GetPreferencesHandler(wtr http.ResponseWriter, req *http.Reque
 		accountID = accountIDFromJWT(req)
 	}
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -34,12 +34,12 @@ func (s *Service) GetPreferencesHandler(wtr http.ResponseWriter, req *http.Reque
 func (s *Service) UpdatePreferencesHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
 
-	var input models.UpdatePreferencesRequest
+	var input models.Preferences
 	if err := decodeStrict(req, &input); err != nil {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
@@ -50,7 +50,7 @@ func (s *Service) UpdatePreferencesHandler(wtr http.ResponseWriter, req *http.Re
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "preferences"))
+	logger.Info("updated account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "preferences"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, input)
@@ -59,7 +59,7 @@ func (s *Service) UpdatePreferencesHandler(wtr http.ResponseWriter, req *http.Re
 func (s *Service) DeletePreferencesHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -69,6 +69,6 @@ func (s *Service) DeletePreferencesHandler(wtr http.ResponseWriter, req *http.Re
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "preferences"))
+	logger.Info("deleted account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "preferences"))
 	wtr.WriteHeader(http.StatusNoContent)
 }

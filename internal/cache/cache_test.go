@@ -9,6 +9,7 @@ import (
 )
 
 func TestTTLCache_SetAndGet(t *testing.T) {
+	t.Parallel()
 	c := New[string, int](time.Minute, 0)
 	defer c.Stop()
 
@@ -29,6 +30,7 @@ func TestTTLCache_Expiry(t *testing.T) {
 }
 
 func TestTTLCache_Delete(t *testing.T) {
+	t.Parallel()
 	c := New[string, int](time.Minute, 0)
 	defer c.Stop()
 
@@ -39,6 +41,7 @@ func TestTTLCache_Delete(t *testing.T) {
 }
 
 func TestTTLCache_MaxCap_EvictsOnSet(t *testing.T) {
+	t.Parallel()
 	c := New[string, int](time.Minute, 2)
 	defer c.Stop()
 

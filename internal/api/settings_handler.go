@@ -18,7 +18,7 @@ func (s *Service) GetSettingsHandler(wtr http.ResponseWriter, req *http.Request)
 		accountID = accountIDFromJWT(req)
 	}
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -38,7 +38,7 @@ func (s *Service) GetSettingsHandler(wtr http.ResponseWriter, req *http.Request)
 func (s *Service) UpdateSettingsHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := req.PathValue("id")
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -63,7 +63,7 @@ func (s *Service) UpdateSettingsHandler(wtr http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "settings"))
+	logger.Info("updated account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "settings"))
 
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
@@ -85,7 +85,7 @@ func callerServiceFromScopes(req *http.Request) string {
 func (s *Service) UpdateSettingsTagsHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := req.PathValue("id")
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -108,7 +108,7 @@ func (s *Service) UpdateSettingsTagsHandler(wtr http.ResponseWriter, req *http.R
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "settings.tags"))
+	logger.Info("updated account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "settings.tags"))
 
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)

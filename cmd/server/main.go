@@ -1,80 +1,78 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"komodo-accounts-api/internal/api"
 	"komodo-accounts-api/internal/db"
 
-	sdkapi "github.com/rdevitto86/komodo-forge-sdk-go/api"
+	"github.com/rdevitto86/komodo-forge-sdk-go/api/idempotency"
+	sdkserver "github.com/rdevitto86/komodo-forge-sdk-go/api/server"
 	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 )
 
 func main() {
-	// Check if we're in health check mode
-	if code, isHealthCheck := healthCheckMode(os.Args); isHealthCheck {
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+
+	if code, isHealthCheck := healthCheckMode(os.Args, &cfg); isHealthCheck {
 		os.Exit(code)
 	}
 
-	jwtClient, ddb, s3Client := bootstrap(context.Background())
+	boot := bootstrap()
 
-	// Initialize Dynamo DB client
-	repo := db.New(ddb, os.Getenv(DYNAMODB_TABLE))
+	idempotency.SetStore(idempotency.NewStore("local", boot.idempotencyTTLSec))
+	logger.Info("configured idempotency store",
+		logger.Attr("mode", "local"),
+		logger.Attr("ttl_sec", boot.idempotencyTTLSec),
+	)
 
-	// Initialize internal services
+	repo := db.New(boot.ddb, cfg.dynamoTable, db.WithRestoreWindow(boot.tuning.restoreWindow))
+
 	svc := api.NewService(repo, api.ServiceExtraConfig{
-		S3Client:       s3Client,
-		ExportBucket:   os.Getenv(S3_EXPORT_BUCKET),
-		UnsubscribeKey: []byte(os.Getenv(UNSUBSCRIBE_TOKEN_SECRET)),
-		AvatarBucket:   os.Getenv(S3_AVATAR_BUCKET),
+		S3Client:       boot.s3Client,
+		ExportBucket:   boot.tuning.exportBucket,
+		UnsubscribeKey: boot.unsubscribeKey,
+		AvatarBucket:   boot.tuning.avatarBucket,
+		PresignTTL:     boot.tuning.presignExpiry,
+		UnsubTokenTTL:  boot.tuning.unsubTokenTTL,
+		CacheTTL:       boot.tuning.cacheTTL,
+		CacheMaxSize:   boot.tuning.cacheMaxSize,
 	})
 
-	pubMux := newPublicMux(svc, ddb, jwtClient)
-	privMux := newPrivateMux(svc, ddb, jwtClient)
-
-	pubAddr := os.Getenv(sdkapi.PORT)
-	if pubAddr == "" {
-		logger.Fatal(
-			"failed to start public server",
-			fmt.Errorf("environment variable not set"),
-			logger.Attr("env_var", sdkapi.PORT),
-		)
+	err = sdkserver.Serve(
+		boot.timeouts.shutdown,
+		sdkserver.Listener{
+			Label: "public",
+			Addr:  cfg.publicAddr,
+			Server: &http.Server{
+				Handler:           newPublicMux(svc, boot.ddb, boot.verify.user, &cfg, boot.generalLimiter),
+				ReadTimeout:       boot.timeouts.read,
+				WriteTimeout:      boot.timeouts.write,
+				IdleTimeout:       boot.timeouts.idle,
+				ReadHeaderTimeout: boot.timeouts.header,
+				MaxHeaderBytes:    1 << 20,
+			},
+		},
+		sdkserver.Listener{
+			Label: "private",
+			Addr:  cfg.privateAddr,
+			Server: &http.Server{
+				Handler:           newPrivateMux(svc, boot.ddb, boot.verify.service, &cfg),
+				ReadTimeout:       boot.timeouts.read,
+				WriteTimeout:      boot.timeouts.write,
+				IdleTimeout:       boot.timeouts.idle,
+				ReadHeaderTimeout: boot.timeouts.header,
+				MaxHeaderBytes:    1 << 20,
+			},
+		},
+	)
+	if err != nil {
+		logger.Fatal("server failed to serve", err)
 	}
-	privAddr := os.Getenv(sdkapi.PORT_PRIVATE)
-	if privAddr == "" {
-		logger.Fatal(
-			"failed to start private server",
-			fmt.Errorf("environment variable not set"),
-			logger.Attr("env_var", sdkapi.PORT_PRIVATE),
-		)
-	}
-
-	pubServer := &http.Server{
-		Addr:              pubAddr,
-		Handler:           pubMux,
-		ReadTimeout:       5 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		ReadHeaderTimeout: 2 * time.Second,
-		MaxHeaderBytes:    1 << 20, // 1MB
-	}
-	privServer := &http.Server{
-		Addr:              privAddr,
-		Handler:           privMux,
-		ReadTimeout:       5 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		ReadHeaderTimeout: 2 * time.Second,
-		MaxHeaderBytes:    1 << 20, // 1MB
-	}
-
-	errCh := make(chan error, 2)
-	go func() { errCh <- pubServer.ListenAndServe() }()
-	go func() { errCh <- privServer.ListenAndServe() }()
-
-	logger.Fatal("failed to serve", <-errCh)
 }

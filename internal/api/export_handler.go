@@ -11,7 +11,7 @@ import (
 func (s *Service) ExportProfileHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -22,7 +22,7 @@ func (s *Service) ExportProfileHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "profile.export"))
+	logger.Info("exported account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "profile.export"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusCreated)
 	writeJSON(wtr, result)

@@ -5,74 +5,109 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
-
-	"golang.org/x/time/rate"
+	"time"
 
 	"komodo-accounts-api/internal/api"
 
-	sdkapi "github.com/rdevitto86/komodo-forge-sdk-go/api"
-	"github.com/rdevitto86/komodo-forge-sdk-go/api/handlers/health"
+	"github.com/rdevitto86/komodo-forge-sdk-go/api/health"
 	mw "github.com/rdevitto86/komodo-forge-sdk-go/api/middleware"
-	httpReq "github.com/rdevitto86/komodo-forge-sdk-go/api/request"
-	sdkaws "github.com/rdevitto86/komodo-forge-sdk-go/aws"
+	"github.com/rdevitto86/komodo-forge-sdk-go/api/ratelimit"
+	"github.com/rdevitto86/komodo-forge-sdk-go/api/routes"
+	"github.com/rdevitto86/komodo-forge-sdk-go/auth"
 	awsddb "github.com/rdevitto86/komodo-forge-sdk-go/aws/dynamodb"
 	sdks3 "github.com/rdevitto86/komodo-forge-sdk-go/aws/s3"
 	awsSM "github.com/rdevitto86/komodo-forge-sdk-go/aws/secretsmanager"
 	sdkhttp "github.com/rdevitto86/komodo-forge-sdk-go/http"
-	sdklog "github.com/rdevitto86/komodo-forge-sdk-go/logging"
 	logger "github.com/rdevitto86/komodo-forge-sdk-go/logging/runtime"
 	"github.com/rdevitto86/komodo-forge-sdk-go/security/jwt"
 )
 
 const (
-	DYNAMODB_TABLE             = "DYNAMODB_TABLE"
-	ACCOUNTS_API_CLIENT_ID     = "ACCOUNTS_API_CLIENT_ID"
-	ACCOUNTS_API_CLIENT_SECRET = "ACCOUNTS_API_CLIENT_SECRET"
-	S3_EXPORT_BUCKET           = "S3_EXPORT_BUCKET"
-	S3_AVATAR_BUCKET           = "S3_AVATAR_BUCKET"
-	UNSUBSCRIBE_TOKEN_SECRET   = "UNSUBSCRIBE_TOKEN_SECRET"
+	defaultBootTimeout     = 30 * time.Second
+	defaultReadTimeout     = 5 * time.Second
+	defaultWriteTimeout    = 10 * time.Second
+	defaultIdleTimeout     = 60 * time.Second
+	defaultHeaderTimeout   = 2 * time.Second
+	defaultShutdownTimeout = 30 * time.Second
+
+	defaultPresignExpiry = 15 * time.Minute
+	defaultUnsubTokenTTL = 30 * 24 * time.Hour
+	defaultRestoreWindow = 30 * 24 * time.Hour
+	defaultCacheTTL      = 60 * time.Second
+	defaultCacheMaxSize  = 100_000
+
+	defaultRateLimitRPS   = 1
+	defaultRateLimitBurst = 5
+
+	defaultExistsLimitMaxEntries = 50_000
+	defaultExistsLimitBucketTTL  = 300
+
+	defaultIdempotencyTTLSec = 300
+
+	defaultGeneralRPS   = 10
+	defaultGeneralBurst = 20
+
+	defaultUserAudience    = "komodo-apis:user"
+	defaultServiceAudience = "komodo-apis:service"
+
+	unsubscribeTokenSecret = "UNSUBSCRIBE_TOKEN_SECRET"
 )
 
 var secretKeys = []string{
 	jwt.JWT_PUBLIC_KEY,
-	jwt.JWT_AUDIENCE,
 	jwt.JWT_ISSUER,
-	ACCOUNTS_API_CLIENT_ID,
-	ACCOUNTS_API_CLIENT_SECRET,
-	DYNAMODB_TABLE,
-	sdkhttp.IP_WHITELIST,
-	sdkhttp.IP_BLACKLIST,
-	sdkhttp.MAX_CONTENT_LENGTH,
 	sdkhttp.IDEMPOTENCY_TTL_SEC,
 	sdkhttp.RATE_LIMIT_RPS,
 	sdkhttp.RATE_LIMIT_BURST,
-	sdkhttp.BUCKET_TTL_SECOND,
-	S3_EXPORT_BUCKET,
-	S3_AVATAR_BUCKET,
-	UNSUBSCRIBE_TOKEN_SECRET,
+	unsubscribeTokenSecret,
 }
 
-// Helper that checks if the application is running in health check mode
-func healthCheckMode(args []string) (code int, isHealthCheck bool) {
-	if len(args) <= 1 || args[1] != "-healthcheck" {
-		return 0, false
-	}
-	if code := api.HealthProbe(os.Getenv(sdkapi.PORT)); code != 0 {
-		return code, true
-	}
-	return api.HealthProbe(os.Getenv(sdkapi.PORT_PRIVATE)), true
+type verifiers struct {
+	user    *jwt.Client
+	service *jwt.Client
 }
 
-// Helper that loads all required dependencies for the application
-func bootstrap(ctx context.Context) (
-	*jwt.Client,
-	*awsddb.Client,
-	*sdks3.Client,
-) {
-	// Initialize runtime logger
+type serverTimeouts struct {
+	boot     time.Duration
+	read     time.Duration
+	write    time.Duration
+	idle     time.Duration
+	header   time.Duration
+	shutdown time.Duration
+}
+
+type serviceTuning struct {
+	exportBucket  string
+	avatarBucket  string
+	presignExpiry time.Duration
+	unsubTokenTTL time.Duration
+	restoreWindow time.Duration
+	cacheTTL      time.Duration
+	cacheMaxSize  int
+}
+
+type bootstrapResult struct {
+	verify            verifiers
+	ddb               *awsddb.Client
+	s3Client          *sdks3.Client
+	unsubscribeKey    []byte
+	idempotencyTTLSec int64
+	generalLimiter    *ratelimit.Limiter
+	timeouts          serverTimeouts
+	tuning            serviceTuning
+}
+
+func bootstrap() bootstrapResult {
+	timeouts := loadServerTimeouts()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeouts.boot)
+	defer cancel()
+
 	if err := logger.Init(logger.Config{
-		Level:  os.Getenv(sdklog.LOG_LEVEL),
+		Level:  os.Getenv("LOG_LEVEL"),
 		Format: logger.FormatJSON,
 		Redact: logger.RedactStrict,
 	}); err != nil {
@@ -80,11 +115,18 @@ func bootstrap(ctx context.Context) (
 		os.Exit(1)
 	}
 
-	// Initialize AWS Secrets Manager client
+	tuning, err := loadServiceTuning()
+	if err != nil {
+		logger.Fatal("failed to load service tuning configuration", err)
+	}
+
+	awsRegion := os.Getenv("AWS_REGION")
+	awsEndpoint := os.Getenv("AWS_ENDPOINT")
+
 	sm, err := awsSM.New(ctx, awsSM.Config{
-		Region:     os.Getenv(sdkaws.AWS_REGION),
-		Endpoint:   os.Getenv(sdkaws.AWS_ENDPOINT),
-		SecretPath: os.Getenv(sdkaws.AWS_SECRET_PATH),
+		Region:     awsRegion,
+		Endpoint:   awsEndpoint,
+		SecretPath: os.Getenv("AWS_SECRET_PATH"),
 		Keys:       secretKeys,
 	})
 	if err != nil {
@@ -92,141 +134,221 @@ func bootstrap(ctx context.Context) (
 	}
 	defer sm.Close()
 
-	// Load secrets from AWS Secrets Manager
-	secrets, err := sm.GetSecrets(ctx, secretKeys)
+	fetchedSecrets, err := sm.GetSecrets(ctx, secretKeys)
 	if err != nil {
 		logger.Fatal("failed to fetch secrets", err)
 	}
-	for k, v := range secrets {
-		if err := os.Setenv(k, v); err != nil {
-			logger.Fatal("failed to set env var from secret", err)
+
+	jwtPublicKey, jwtIssuer, unsubscribeKey, idempotencyTTLSec, err := loadBootstrapSecrets(fetchedSecrets)
+	if err != nil {
+		logger.Fatal("failed to load secret-backed configuration", err)
+	}
+
+	userAudience := defaultUserAudience
+	if v := os.Getenv("JWT_AUDIENCE_USER"); v != "" {
+		userAudience = v
+	}
+	serviceAudience := defaultServiceAudience
+	if v := os.Getenv("JWT_AUDIENCE_SERVICE"); v != "" {
+		serviceAudience = v
+	}
+
+	var rps float64 = defaultGeneralRPS
+	if v, err := strconv.ParseFloat(strings.TrimSpace(fetchedSecrets[sdkhttp.RATE_LIMIT_RPS]), 64); err == nil && v > 0 {
+		rps = v
+	}
+	var burst float64 = defaultGeneralBurst
+	if v, err := strconv.ParseFloat(strings.TrimSpace(fetchedSecrets[sdkhttp.RATE_LIMIT_BURST]), 64); err == nil && v > 0 {
+		burst = v
+	}
+
+	generalLimiter := ratelimit.New(ratelimit.Config{RPS: rps, Burst: burst})
+
+	var (
+		verify     verifiers
+		ddb        *awsddb.Client
+		s3Client   *sdks3.Client
+		wg         sync.WaitGroup
+		userJWTErr error
+		svcJWTErr  error
+		ddbErr     error
+		s3Err      error
+	)
+
+	wg.Add(4)
+
+	// init user-plane jwt service
+	go func() {
+		defer wg.Done()
+		verify.user, userJWTErr = jwt.New(ctx, jwt.Config{
+			PublicKeyPEM: jwtPublicKey,
+			Issuer:       jwtIssuer,
+			Audience:     userAudience,
+		})
+	}()
+
+	// init service-plane jwt service
+	go func() {
+		defer wg.Done()
+		verify.service, svcJWTErr = jwt.New(ctx, jwt.Config{
+			PublicKeyPEM: jwtPublicKey,
+			Issuer:       jwtIssuer,
+			Audience:     serviceAudience,
+		})
+	}()
+
+	// init dynamodb client
+	go func() {
+		defer wg.Done()
+		ddb, ddbErr = awsddb.New(ctx, awsddb.Config{
+			Region:   awsRegion,
+			Endpoint: awsEndpoint,
+		})
+	}()
+
+	// init s3 client
+	go func() {
+		defer wg.Done()
+		s3Client, s3Err = sdks3.New(ctx, sdks3.S3Config{
+			Region:   awsRegion,
+			Endpoint: awsEndpoint,
+		})
+	}()
+
+	wg.Wait()
+
+	switch {
+	case userJWTErr != nil:
+		logger.Fatal("failed to initialize user-plane jwt verifier", userJWTErr)
+	case svcJWTErr != nil:
+		logger.Fatal("failed to initialize service-plane jwt verifier", svcJWTErr)
+	case ddbErr != nil:
+		logger.Fatal("failed to initialize dynamodb", ddbErr)
+	case s3Err != nil:
+		logger.Fatal("failed to initialize s3 client", s3Err)
+	}
+
+	logger.Info("completed bootstrap",
+		logger.Attr("user_audience", userAudience),
+		logger.Attr("service_audience", serviceAudience),
+	)
+	return bootstrapResult{
+		verify:            verify,
+		ddb:               ddb,
+		s3Client:          s3Client,
+		unsubscribeKey:    unsubscribeKey,
+		idempotencyTTLSec: idempotencyTTLSec,
+		generalLimiter:    generalLimiter,
+		timeouts:          timeouts,
+		tuning:            tuning,
+	}
+}
+
+// Helper that loads server timeout env vars.
+func loadServerTimeouts() serverTimeouts {
+	t := serverTimeouts{
+		boot:     defaultBootTimeout,
+		read:     defaultReadTimeout,
+		write:    defaultWriteTimeout,
+		idle:     defaultIdleTimeout,
+		header:   defaultHeaderTimeout,
+		shutdown: defaultShutdownTimeout,
+	}
+
+	if v, err := time.ParseDuration(os.Getenv("BOOTSTRAP_TIMEOUT")); err == nil && v > 0 {
+		t.boot = v
+	}
+	if v, err := time.ParseDuration(os.Getenv("SERVER_READ_TIMEOUT")); err == nil && v > 0 {
+		t.read = v
+	}
+	if v, err := time.ParseDuration(os.Getenv("SERVER_WRITE_TIMEOUT")); err == nil && v > 0 {
+		t.write = v
+	}
+	if v, err := time.ParseDuration(os.Getenv("SERVER_IDLE_TIMEOUT")); err == nil && v > 0 {
+		t.idle = v
+	}
+	if v, err := time.ParseDuration(os.Getenv("SERVER_READ_HEADER_TIMEOUT")); err == nil && v > 0 {
+		t.header = v
+	}
+	if v, err := time.ParseDuration(os.Getenv("SERVER_SHUTDOWN_TIMEOUT")); err == nil && v > 0 {
+		t.shutdown = v
+	}
+
+	return t
+}
+
+// Helper that loads service tuning env vars.
+func loadServiceTuning() (serviceTuning, error) {
+	t := serviceTuning{
+		exportBucket:  os.Getenv("S3_EXPORT_BUCKET"),
+		avatarBucket:  os.Getenv("S3_AVATAR_BUCKET"),
+		presignExpiry: defaultPresignExpiry,
+		unsubTokenTTL: defaultUnsubTokenTTL,
+		restoreWindow: defaultRestoreWindow,
+		cacheTTL:      defaultCacheTTL,
+		cacheMaxSize:  defaultCacheMaxSize,
+	}
+
+	if v, err := time.ParseDuration(os.Getenv("S3_PRESIGN_TTL")); err == nil && v > 0 {
+		t.presignExpiry = v
+	}
+	if v, err := time.ParseDuration(os.Getenv("UNSUBSCRIBE_TOKEN_TTL")); err == nil && v > 0 {
+		t.unsubTokenTTL = v
+	}
+	if v, err := time.ParseDuration(os.Getenv("SOFT_DELETE_WINDOW")); err == nil && v > 0 {
+		t.restoreWindow = v
+	}
+	if v, err := time.ParseDuration(os.Getenv("PROFILE_CACHE_TTL")); err == nil && v > 0 {
+		t.cacheTTL = v
+	}
+	if v, err := strconv.Atoi(os.Getenv("PROFILE_CACHE_MAX_ENTRIES")); err == nil && v > 0 {
+		t.cacheMaxSize = v
+	}
+
+	type s3Cfg struct {
+		key   string
+		value string
+	}
+	sc := []s3Cfg{
+		{"S3_EXPORT_BUCKET", t.exportBucket},
+		{"S3_AVATAR_BUCKET", t.avatarBucket},
+	}
+
+	var missing []string
+	for _, kv := range sc {
+		if kv.value == "" {
+			missing = append(missing, kv.key)
 		}
 	}
-
-	// Initialize JWT client
-	jwtClient, err := jwt.New(ctx, jwt.Config{
-		PublicKeyPEM: os.Getenv(jwt.JWT_PUBLIC_KEY),
-		Issuer:       os.Getenv(jwt.JWT_ISSUER),
-		Audience:     os.Getenv(jwt.JWT_AUDIENCE),
-	})
-	if err != nil {
-		logger.Fatal("failed to initialize jwt verifier", err)
+	if len(missing) > 0 {
+		return t, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
 	}
-
-	// Initialize DynamoDB client
-	ddb, err := awsddb.New(ctx, awsddb.Config{
-		Region:   os.Getenv(sdkaws.AWS_REGION),
-		Endpoint: os.Getenv(sdkaws.AWS_ENDPOINT),
-	})
-	if err != nil {
-		logger.Fatal("failed to initialize dynamodb", err)
-	}
-
-	// Initialize S3 client
-	s3Client, err := sdks3.New(ctx, sdks3.S3Config{
-		Region:   os.Getenv(sdkaws.AWS_REGION),
-		Endpoint: os.Getenv(sdkaws.AWS_ENDPOINT),
-	})
-	if err != nil {
-		logger.Fatal("failed to initialize s3 client", err)
-	}
-
-	logger.Info("accounts-api: bootstrap complete")
-	return jwtClient, ddb, s3Client
+	return t, nil
 }
 
-// Helper that creates a rate limiter
-func newExistsRateLimiter() func(http.Handler) http.Handler {
-	var limiters sync.Map
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(wtr http.ResponseWriter, req *http.Request) {
-			key := httpReq.GetClientKey(req)
-			v, _ := limiters.LoadOrStore(key, rate.NewLimiter(rate.Limit(1), 5))
-			if !v.(*rate.Limiter).Allow() {
-				wtr.Header().Set("Retry-After", "1")
-				http.Error(wtr, "rate limit exceeded", http.StatusTooManyRequests)
-				return
-			}
-			next.ServeHTTP(wtr, req)
-		})
-	}
-}
-
-type publicRoute struct {
-	method  string
-	path    string
-	handler http.HandlerFunc
-	chain   []func(http.Handler) http.Handler
-}
-
-// Helper that generates versioned paths from a base path and version list
-func versionedPaths(path string, versions ...string) []string {
-	paths := make([]string, len(versions))
-	for i, v := range versions {
-		paths[i] = "/" + v + path
-	}
-	return paths
-}
-
-// Helper function that creates versioned routes from a base path and version list
-func versioned(
-	method, path string,
-	handler http.HandlerFunc,
-	chain []func(http.Handler) http.Handler,
-	versions ...string,
-) []publicRoute {
-	paths := versionedPaths(path, versions...)
-	routes := make([]publicRoute, len(paths))
-	for i, p := range paths {
-		routes[i] = publicRoute{method, p, handler, chain}
-	}
-	return routes
-}
-
-// Helper that creates public routes with rule validation and middleware chains
-func publicRuleValidatedRoutes(svc *api.Service, publicRead, publicWrite []func(http.Handler) http.Handler) []publicRoute {
-	var routes []publicRoute
-	routes = append(routes, versioned(http.MethodGet, "/me/profile", svc.GetProfileHandler, publicRead, "v1")...)
-	routes = append(routes, versioned(http.MethodPost, "/me/profile", svc.CreateAccountHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodPut, "/me/profile", svc.UpdateProfileHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodDelete, "/me/profile", svc.DeleteProfileHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodPost, "/me/profile/restore", svc.RestoreProfileHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodPost, "/me/profile/export", svc.ExportProfileHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodPost, "/me/profile/avatar", svc.AvatarUploadHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodGet, "/me/addresses", svc.GetAddressesHandler, publicRead, "v1")...)
-	routes = append(routes, versioned(http.MethodPost, "/me/addresses", svc.AddAddressHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodPut, "/me/addresses/{id}", svc.UpdateAddressHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodDelete, "/me/addresses/{id}", svc.DeleteAddressHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodGet, "/me/payments", svc.GetPaymentsHandler, publicRead, "v1")...)
-	routes = append(routes, versioned(http.MethodPut, "/me/payments", svc.UpsertPaymentHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodDelete, "/me/payments/{id}", svc.DeletePaymentHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodGet, "/me/preferences", svc.GetPreferencesHandler, publicRead, "v1")...)
-	routes = append(routes, versioned(http.MethodPut, "/me/preferences", svc.UpdatePreferencesHandler, publicWrite, "v1")...)
-	routes = append(routes, versioned(http.MethodDelete, "/me/preferences", svc.DeletePreferencesHandler, publicWrite, "v1")...)
-	return routes
-}
-
-// Helper that creates the public port mux server for the API with all the necessary middleware
-func newPublicMux(svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client) *http.ServeMux {
-	publicRead := []func(http.Handler) http.Handler{
+// Helper that creates a new public mux server with dependencies.
+func newPublicMux(
+	svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client, cfg *config, generalLimiter *ratelimit.Limiter,
+) *http.ServeMux {
+	publicRead := []routes.Middleware{
 		mw.RequestIDMiddleware,
 		mw.TelemetryMiddleware,
-		mw.RateLimiterMiddleware,
+		mw.RateLimiterMiddleware(generalLimiter),
 		mw.CORSMiddleware,
 		mw.SecurityHeadersMiddleware,
-		mw.AuthMiddleware(jwtClient),
+		mw.AuthMiddleware(auth.NewJWTVerifier(jwtClient)),
 		mw.CSRFMiddleware,
 		mw.NormalizationMiddleware,
 		mw.RuleValidationMiddleware,
 		mw.SanitizationMiddleware,
 	}
 
-	publicWrite := append(append([]func(http.Handler) http.Handler{}, publicRead...), mw.IdempotencyMiddleware)
+	publicWrite := append(append([]routes.Middleware{}, publicRead...), mw.IdempotencyMiddleware)
 
-	publicUnauth := []func(http.Handler) http.Handler{
+	publicUnauth := []routes.Middleware{
 		mw.RequestIDMiddleware,
 		mw.TelemetryMiddleware,
-		mw.RateLimiterMiddleware,
+		mw.RateLimiterMiddleware(generalLimiter),
 		mw.CORSMiddleware,
 		mw.SecurityHeadersMiddleware,
 	}
@@ -234,65 +356,167 @@ func newPublicMux(svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client) *
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health.HealthHandler)
 	mux.HandleFunc("GET /health/ready", health.NewReadyHandler([]health.Checker{
-		health.DynamoDBChecker("dynamodb", ddb, os.Getenv(DYNAMODB_TABLE)),
+		health.DynamoDBChecker("dynamodb", ddb, cfg.dynamoTable),
 	}))
 
-	for _, r := range publicRuleValidatedRoutes(svc, publicRead, publicWrite) {
-		mux.Handle(r.method+" "+r.path, mw.Chain(r.handler, r.chain...))
+	v1 := routes.NewRouter(mux, "/v1")
+
+	// /v1/me
+	v1.Group("/me", func(me *routes.RouteGroup) {
+		// /v1/me/profile
+		me.Group("/profile", func(profile *routes.RouteGroup) {
+			profile.Use(publicRead...).Get(svc.GetProfileHandler)
+		})
+		// /v1/me/profile
+		me.Group("/profile", func(profile *routes.RouteGroup) {
+			profile.Use(publicWrite...)
+			profile.Post(svc.CreateAccountHandler)
+			profile.Put(svc.UpdateProfileHandler)
+			profile.Delete(svc.DeleteProfileHandler)
+		})
+		// /v1/me/profile/restore
+		me.Group("/profile/restore").Use(publicWrite...).Post(svc.RestoreProfileHandler)
+		// /v1/me/profile/export
+		me.Group("/profile/export").Use(publicWrite...).Post(svc.ExportProfileHandler)
+		// /v1/me/profile/avatar
+		me.Group("/profile/avatar").Use(publicWrite...).Post(svc.AvatarUploadHandler)
+
+		// /v1/me/addresses
+		me.Group("/addresses", func(addresses *routes.RouteGroup) {
+			addresses.Use(publicRead...).Get(svc.GetAddressesHandler)
+		})
+		// /v1/me/addresses
+		me.Group("/addresses", func(addresses *routes.RouteGroup) {
+			addresses.Use(publicWrite...).Post(svc.AddAddressHandler)
+		})
+		// /v1/me/addresses/{id}
+		me.Group("/addresses/{id}", func(address *routes.RouteGroup) {
+			address.Use(publicWrite...)
+			address.Put(svc.UpdateAddressHandler)
+			address.Delete(svc.DeleteAddressHandler)
+		})
+
+		// /v1/me/payments
+		me.Group("/payments", func(payments *routes.RouteGroup) {
+			payments.Use(publicRead...).Get(svc.GetPaymentsHandler)
+		})
+		// /v1/me/payments
+		me.Group("/payments", func(payments *routes.RouteGroup) {
+			payments.Use(publicWrite...).Put(svc.UpsertPaymentHandler)
+		})
+		// /v1/me/payments/{id}
+		me.Group("/payments/{id}").Use(publicWrite...).Delete(svc.DeletePaymentHandler)
+		// /v1/me/preferences
+		me.Group("/preferences", func(preferences *routes.RouteGroup) {
+			preferences.Use(publicRead...).Get(svc.GetPreferencesHandler)
+		})
+		// /v1/me/preferences
+		me.Group("/preferences", func(preferences *routes.RouteGroup) {
+			preferences.Use(publicWrite...)
+			preferences.Put(svc.UpdatePreferencesHandler)
+			preferences.Delete(svc.DeletePreferencesHandler)
+		})
+	})
+
+	// /v1/communications/unsubscribe
+	v1.Group("/communications/unsubscribe").Use(publicUnauth...).Post(svc.UnsubscribeHandler)
+
+	maxEntries := defaultExistsLimitMaxEntries
+	if v, err := strconv.Atoi(os.Getenv("EXISTS_RATE_LIMIT_MAX_ENTRIES")); err == nil && v > 0 {
+		maxEntries = v
+	}
+	bucketTTL := defaultExistsLimitBucketTTL
+	if v, err := strconv.Atoi(os.Getenv("EXISTS_RATE_LIMIT_BUCKET_TTL_SEC")); err == nil && v > 0 {
+		bucketTTL = v
 	}
 
-	for _, p := range versionedPaths("/communications/unsubscribe", "v1") {
-		mux.Handle("POST "+p, mw.Chain(http.HandlerFunc(svc.UnsubscribeHandler), publicUnauth...))
-	}
+	existsLimiter := ratelimit.New(ratelimit.Config{
+		RPS:             defaultRateLimitRPS,
+		Burst:           defaultRateLimitBurst,
+		MaxEntries:      maxEntries,
+		BucketTTLSecond: bucketTTL,
+	})
 
-	for _, p := range versionedPaths("/accounts/exists", "v1") {
-		mux.Handle("GET "+p, newExistsRateLimiter()(mw.Chain(http.HandlerFunc(svc.GetAccountExistsHandler), publicUnauth...)))
-	}
+	// /v1/accounts/exists
+	mux.Handle("GET /v1/accounts/exists", routes.AppendMiddleware(
+		svc.GetAccountExistsHandler,
+		append([]routes.Middleware{mw.RateLimiterMiddleware(existsLimiter)}, publicUnauth...)...,
+	))
 
 	return mux
 }
 
-// Helper function that creates private routes with rule validation and middleware chains
-func privateRoutes(svc *api.Service, internal []func(http.Handler) http.Handler) []publicRoute {
-	var routes []publicRoute
-	routes = append(routes, versioned(http.MethodGet, "/accounts/{id}", svc.GetProfileHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodGet, "/accounts/{id}/addresses", svc.GetAddressesHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodGet, "/accounts/{id}/preferences", svc.GetPreferencesHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodGet, "/accounts/{id}/payments", svc.GetPaymentsHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodGet, "/accounts/credentials", svc.GetCredentialsHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodPut, "/accounts/{id}/credentials", svc.UpdateCredentialsHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodGet, "/accounts/{id}/passkeys", svc.GetPasskeysHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodPost, "/accounts/{id}/passkeys", svc.AddPasskeyHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodPatch, "/accounts/{id}/passkeys/{credential_id}", svc.UpdatePasskeyHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodDelete, "/accounts/{id}/passkeys/{credential_id}", svc.DeletePasskeyHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodGet, "/accounts/{id}/settings", svc.GetSettingsHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodPut, "/accounts/{id}/settings", svc.UpdateSettingsHandler, internal, "v1")...)
-	routes = append(routes, versioned(http.MethodPut, "/accounts/{id}/settings/tags", svc.UpdateSettingsTagsHandler, internal, "v1")...)
-	return routes
-}
-
-// Helper function that creates private mux with rule validation and middleware chains
-func newPrivateMux(svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client) *http.ServeMux {
-	internal := []func(http.Handler) http.Handler{
+// Helper that creates a new private mux server with dependencies.
+func newPrivateMux(svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client, cfg *config) *http.ServeMux {
+	internal := []routes.Middleware{
 		mw.RequestIDMiddleware,
 		mw.TelemetryMiddleware,
-		mw.AuthMiddleware(jwtClient),
+		mw.AuthMiddleware(auth.NewJWTVerifier(jwtClient)),
 		mw.ScopeMiddleware,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health.HealthHandler)
 	mux.HandleFunc("GET /health/ready", health.NewReadyHandler([]health.Checker{
-		health.DynamoDBChecker("dynamodb", ddb, os.Getenv(DYNAMODB_TABLE)),
+		health.DynamoDBChecker("dynamodb", ddb, cfg.dynamoTable),
 	}))
 
-	for _, r := range privateRoutes(svc, internal) {
-		mux.Handle(r.method+" "+r.path, mw.Chain(r.handler, r.chain...))
-	}
+	v1 := routes.NewRouter(mux, "/v1")
+	v1.Use(internal...)
 
-	for _, p := range versionedPaths("/accounts/{id}/communications/unsubscribe-token", "v1") {
-		mux.Handle("POST /internal"+p, mw.Chain(http.HandlerFunc(svc.MintUnsubscribeTokenHandler), internal...))
-	}
+	// /v1/accounts
+	v1.Group("/accounts", func(accounts *routes.RouteGroup) {
+		// /v1/accounts/credentials
+		accounts.Group("/credentials").Get(svc.GetCredentialsHandler)
+
+		// /v1/accounts/{id}
+		accounts.Group("/{id}", func(byID *routes.RouteGroup) {
+			byID.Get(svc.GetProfileHandler)
+
+			// /v1/accounts/{id}/addresses
+			byID.Group("/addresses").Get(svc.GetAddressesHandler)
+			// /v1/accounts/{id}/preferences
+			byID.Group("/preferences").Get(svc.GetPreferencesHandler)
+			// /v1/accounts/{id}/payments
+			byID.Group("/payments").Get(svc.GetPaymentsHandler)
+			// /v1/accounts/{id}/credentials
+			byID.Group("/credentials").Put(svc.UpdateCredentialsHandler)
+
+			// /v1/accounts/{id}/passkeys
+			byID.Group("/passkeys", func(passkeys *routes.RouteGroup) {
+				passkeys.Get(svc.GetPasskeysHandler)
+				passkeys.Post(svc.AddPasskeyHandler)
+			})
+			// /v1/accounts/{id}/passkeys/{credential_id}
+			byID.Group("/passkeys/{credential_id}", func(passkey *routes.RouteGroup) {
+				passkey.Patch(svc.UpdatePasskeyHandler)
+				passkey.Delete(svc.DeletePasskeyHandler)
+			})
+			// /v1/accounts/{id}/settings
+			byID.Group("/settings", func(settings *routes.RouteGroup) {
+				settings.Get(svc.GetSettingsHandler)
+				settings.Put(svc.UpdateSettingsHandler)
+				settings.Group("/tags").Put(svc.UpdateSettingsTagsHandler)
+			})
+		})
+	})
+
+	// TODO - ensure this will be used
+	mux.Handle(
+		"POST /internal/v1/accounts/{id}/communications/unsubscribe-token",
+		routes.AppendMiddleware(svc.MintUnsubscribeTokenHandler, internal...),
+	)
 
 	return mux
+}
+
+// Helper that checks if the health check flag is set and runs the health check.
+func healthCheckMode(args []string, cfg *config) (code int, isHealthCheck bool) {
+	if len(args) <= 1 || args[1] != "-healthcheck" {
+		return 0, false
+	}
+	if code := api.HealthProbe(cfg.publicAddr); code != 0 {
+		return code, true
+	}
+	return api.HealthProbe(cfg.privateAddr), true
 }

@@ -18,7 +18,7 @@ func (s *Service) GetProfileHandler(wtr http.ResponseWriter, req *http.Request) 
 		accountID = accountIDFromJWT(req)
 	}
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -38,39 +38,39 @@ func (s *Service) GetProfileHandler(wtr http.ResponseWriter, req *http.Request) 
 func (s *Service) CreateAccountHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
 
-	var input models.Account
+	var input models.CreateAccountRequest
 	if err := decodeStrict(req, &input); err != nil {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
 	}
-	input.AccountID = accountID
 
-	if err := s.CreateAccount(req.Context(), &input); err != nil {
+	created, err := s.CreateAccount(req.Context(), accountID, &input)
+	if err != nil {
 		sendAccountError(wtr, req, err)
 		return
 	}
 
-	logger.Info("account resource created", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "profile"))
+	logger.Info("created account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "profile"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusCreated)
-	writeJSON(wtr, input)
+	writeJSON(wtr, created)
 }
 
 // Route handler that updates the profile for the authenticated user.
 func (s *Service) UpdateProfileHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
 
-	var input models.Account
+	var input models.UpdateAccountRequest
 	if err := decodeStrict(req, &input); err != nil {
 		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
 		return
@@ -82,7 +82,7 @@ func (s *Service) UpdateProfileHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "profile"))
+	logger.Info("updated account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "profile"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, updated)
@@ -92,7 +92,7 @@ func (s *Service) UpdateProfileHandler(wtr http.ResponseWriter, req *http.Reques
 func (s *Service) DeleteProfileHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -102,7 +102,7 @@ func (s *Service) DeleteProfileHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "profile"))
+	logger.Info("requested account closure", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "profile"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusAccepted)
 	writeJSON(wtr, map[string]string{"message": "account closure requested; data will be erased in 30 days"})
@@ -112,7 +112,7 @@ func (s *Service) DeleteProfileHandler(wtr http.ResponseWriter, req *http.Reques
 func (s *Service) RestoreProfileHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -126,7 +126,7 @@ func (s *Service) RestoreProfileHandler(wtr http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "profile"))
+	logger.Info("restored account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "profile"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, map[string]string{"message": "account restored"})
@@ -136,12 +136,18 @@ func (s *Service) RestoreProfileHandler(wtr http.ResponseWriter, req *http.Reque
 func (s *Service) AvatarUploadHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
 
-	uploadURL, err := s.GetAvatarUploadURL(req.Context(), accountID)
+	var input models.AvatarUploadRequest
+	if err := decodeStrict(req, &input); err != nil {
+		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
+		return
+	}
+
+	uploadURL, err := s.GetAvatarUploadURL(req.Context(), accountID, string(input.ContentType), input.ContentLength)
 	if err != nil {
 		sendAccountError(wtr, req, err)
 		return
@@ -149,9 +155,10 @@ func (s *Service) AvatarUploadHandler(wtr http.ResponseWriter, req *http.Request
 
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusOK)
-	writeJSON(wtr, map[string]any{
-		"upload_url":         uploadURL,
-		"expires_in_seconds": 900,
+	writeJSON(wtr, models.AvatarUploadResponse{
+		UploadUrl:        uploadURL,
+		ExpiresInSeconds: int(s.presignTTL.Seconds()),
+		MaxBytes:         MaxAvatarBytes,
 	})
 }
 

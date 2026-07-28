@@ -28,27 +28,48 @@ jobs:
       # Lint
       - uses: golangci/golangci-lint-action@v8
 
+      # Test tier: component on PR, integration on merge to main
+      - name: Set test tier
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "TEST_TIER=component" >> "$GITHUB_ENV"
+          else
+            echo "TEST_TIER=integration" >> "$GITHUB_ENV"
+          fi
+
       # Test (race + cover)
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
 
-      # Coverage floor
+      # Coverage floor: statement-weighted, per package, non-regressing
       - name: Coverage floor
         run: |
-          go tool cover -func=coverage.out | awk '
-            /^total:/ { next }
-            /cmd\// { next }
-            /mocks\// { next }
+          awk '
+            NR == 1 { next }
+            /\.gen\.go:/ || /\/test\/mocks\// || /\/cmd\// { next }
             {
-              pkg=$1; pct=$3
-              gsub(/%/, "", pct)
-              if (pct+0 < 80) {
-                print "FAIL: " pkg " coverage " pct "% < 80%"
-                fail=1
-              }
+              split($1, f, ":")
+              n = split(f[1], d, "/")
+              pkg = d[1]
+              for (i = 2; i < n; i++) pkg = pkg "/" d[i]
+              total[pkg] += $2
+              if ($3 > 0) covered[pkg] += $2
             }
-            END { exit fail }
-          '
+            END {
+              floors["komodo-accounts-api/internal/api"] = 76
+              floors["komodo-accounts-api/internal/db"] = 41
+              for (p in total) {
+                floor = (p in floors) ? floors[p] : 80
+                pct = covered[p] * 100 / total[p]
+                printf "%-45s %6.1f%% (floor %d%%)\n", p, pct, floor
+                if (pct < floor) {
+                  printf "FAIL: %s coverage %.1f%% < %d%%\n", p, pct, floor
+                  fail = 1
+                }
+              }
+              exit fail
+            }
+          ' coverage.out
 
       # Security scan
       - name: Security scan

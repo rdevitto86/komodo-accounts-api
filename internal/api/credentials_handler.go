@@ -48,7 +48,7 @@ func (s *Service) UpdateCredentialsHandler(wtr http.ResponseWriter, req *http.Re
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "credentials"))
+	logger.Info("updated account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "credentials"))
 	wtr.WriteHeader(http.StatusNoContent)
 }
 

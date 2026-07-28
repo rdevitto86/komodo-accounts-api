@@ -16,7 +16,7 @@ func (s *Service) GetAddressesHandler(wtr http.ResponseWriter, req *http.Request
 		accountID = accountIDFromJWT(req)
 	}
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -36,7 +36,7 @@ func (s *Service) GetAddressesHandler(wtr http.ResponseWriter, req *http.Request
 func (s *Service) AddAddressHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -52,7 +52,7 @@ func (s *Service) AddAddressHandler(wtr http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "address"))
+	logger.Info("created account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "address"))
 	wtr.Header().Set("Content-Type", "application/json")
 	wtr.WriteHeader(http.StatusCreated)
 	writeJSON(wtr, input)
@@ -62,7 +62,7 @@ func (s *Service) AddAddressHandler(wtr http.ResponseWriter, req *http.Request) 
 func (s *Service) UpdateAddressHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -84,7 +84,7 @@ func (s *Service) UpdateAddressHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "address"))
+	logger.Info("updated account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "address"))
 	wtr.WriteHeader(http.StatusOK)
 }
 
@@ -92,7 +92,7 @@ func (s *Service) UpdateAddressHandler(wtr http.ResponseWriter, req *http.Reques
 func (s *Service) DeleteAddressHandler(wtr http.ResponseWriter, req *http.Request) {
 	accountID := accountIDFromJWT(req)
 	if accountID == "" {
-		logger.Warn("unauthorized request", nil)
+		logger.Warn("rejected unauthorized request", nil)
 		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
 		return
 	}
@@ -108,6 +108,6 @@ func (s *Service) DeleteAddressHandler(wtr http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	logger.Info("account resource updated", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "address"))
+	logger.Info("deleted account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "address"))
 	wtr.WriteHeader(http.StatusNoContent)
 }
