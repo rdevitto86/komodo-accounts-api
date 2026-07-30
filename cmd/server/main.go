@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"komodo-accounts-api/internal/api"
 	"komodo-accounts-api/internal/db"
@@ -14,61 +17,120 @@ import (
 )
 
 func main() {
-	cfg, err := loadConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
-	}
+	publicAddr := os.Getenv("PORT")
+	privateAddr := os.Getenv("PORT_PRIVATE")
 
-	if code, isHealthCheck := healthCheckMode(os.Args, &cfg); isHealthCheck {
+	// checks for health check mode
+	if code, isHealthCheck := healthCheckMode(os.Args, publicAddr, privateAddr); isHealthCheck {
+		fmt.Fprintf(os.Stdout, "Health check mode enabled. Result: %d\n", code)
 		os.Exit(code)
 	}
 
-	boot := bootstrap()
+	ddbTable := os.Getenv("DYNAMODB_TABLE")
+	exportBucket := os.Getenv("S3_EXPORT_BUCKET")
+	avatarBucket := os.Getenv("S3_AVATAR_BUCKET")
 
-	idempotency.SetStore(idempotency.NewStore("local", boot.idempotencyTTLSec))
+	if missing := missingKeys(
+		envVar{"PORT", publicAddr},
+		envVar{"PORT_PRIVATE", privateAddr},
+		envVar{"DYNAMODB_TABLE", ddbTable},
+		envVar{"S3_EXPORT_BUCKET", exportBucket},
+		envVar{"S3_AVATAR_BUCKET", avatarBucket},
+	); len(missing) > 0 {
+		fmt.Fprintf(os.Stderr, "missing required environment variables: %s\n", strings.Join(missing, ", "))
+		os.Exit(1)
+	}
+
+	// load server config and dependencies
+	svr := bootstrap()
+
+	// init idempotency store
+	idempotency.SetStore(idempotency.NewStore("local", svr.idempotencyTTLSec))
 	logger.Info("configured idempotency store",
 		logger.Attr("mode", "local"),
-		logger.Attr("ttl_sec", boot.idempotencyTTLSec),
+		logger.Attr("ttl_sec", svr.idempotencyTTLSec),
 	)
 
-	repo := db.New(boot.ddb, cfg.dynamoTable, db.WithRestoreWindow(boot.tuning.restoreWindow))
+	restoreWindow := defaultRestoreWindow
+	if v, err := time.ParseDuration(os.Getenv("SOFT_DELETE_WINDOW")); err == nil && v > 0 {
+		restoreWindow = v
+	}
+	presignExpiry := defaultPresignExpiry
+	if v, err := time.ParseDuration(os.Getenv("S3_PRESIGN_TTL")); err == nil && v > 0 {
+		presignExpiry = v
+	}
+	unsubTokenTTL := defaultUnsubTokenTTL
+	if v, err := time.ParseDuration(os.Getenv("UNSUBSCRIBE_TOKEN_TTL")); err == nil && v > 0 {
+		unsubTokenTTL = v
+	}
+	cacheTTL := defaultCacheTTL
+	if v, err := time.ParseDuration(os.Getenv("PROFILE_CACHE_TTL")); err == nil && v > 0 {
+		cacheTTL = v
+	}
+	cacheMaxSize := defaultCacheMaxSize
+	if v, err := strconv.Atoi(os.Getenv("PROFILE_CACHE_MAX_ENTRIES")); err == nil && v > 0 {
+		cacheMaxSize = v
+	}
 
-	svc := api.NewService(repo, api.ServiceExtraConfig{
-		S3Client:       boot.s3Client,
-		ExportBucket:   boot.tuning.exportBucket,
-		UnsubscribeKey: boot.unsubscribeKey,
-		AvatarBucket:   boot.tuning.avatarBucket,
-		PresignTTL:     boot.tuning.presignExpiry,
-		UnsubTokenTTL:  boot.tuning.unsubTokenTTL,
-		CacheTTL:       boot.tuning.cacheTTL,
-		CacheMaxSize:   boot.tuning.cacheMaxSize,
-	})
+	// init global service
+	svc := api.NewService(
+		db.New(svr.ddb, ddbTable, db.WithRestoreWindow(restoreWindow)),
+		api.ServiceExtraConfig{
+			S3Client:       svr.s3Client,
+			ExportBucket:   exportBucket,
+			UnsubscribeKey: svr.unsubscribeKey,
+			AvatarBucket:   avatarBucket,
+			PresignTTL:     presignExpiry,
+			UnsubTokenTTL:  unsubTokenTTL,
+			CacheTTL:       cacheTTL,
+			CacheMaxSize:   cacheMaxSize,
+		})
 
-	err = sdkserver.Serve(
-		boot.timeouts.shutdown,
+	readTimeout := defaultReadTimeout
+	if v, err := time.ParseDuration(os.Getenv("SERVER_READ_TIMEOUT")); err == nil && v > 0 {
+		readTimeout = v
+	}
+	writeTimeout := defaultWriteTimeout
+	if v, err := time.ParseDuration(os.Getenv("SERVER_WRITE_TIMEOUT")); err == nil && v > 0 {
+		writeTimeout = v
+	}
+	idleTimeout := defaultIdleTimeout
+	if v, err := time.ParseDuration(os.Getenv("SERVER_IDLE_TIMEOUT")); err == nil && v > 0 {
+		idleTimeout = v
+	}
+	headerTimeout := defaultHeaderTimeout
+	if v, err := time.ParseDuration(os.Getenv("SERVER_READ_HEADER_TIMEOUT")); err == nil && v > 0 {
+		headerTimeout = v
+	}
+	shutdownTimeout := defaultShutdownTimeout
+	if v, err := time.ParseDuration(os.Getenv("SERVER_SHUTDOWN_TIMEOUT")); err == nil && v > 0 {
+		shutdownTimeout = v
+	}
+
+	err := sdkserver.Serve(
+		shutdownTimeout,
 		sdkserver.Listener{
 			Label: "public",
-			Addr:  cfg.publicAddr,
+			Addr:  publicAddr,
 			Server: &http.Server{
-				Handler:           newPublicMux(svc, boot.ddb, boot.verify.user, &cfg, boot.generalLimiter),
-				ReadTimeout:       boot.timeouts.read,
-				WriteTimeout:      boot.timeouts.write,
-				IdleTimeout:       boot.timeouts.idle,
-				ReadHeaderTimeout: boot.timeouts.header,
-				MaxHeaderBytes:    1 << 20,
+				Handler:           newPublicMux(svc, svr.ddb, svr.verify.user, ddbTable, svr.generalLimiter),
+				ReadTimeout:       readTimeout,
+				WriteTimeout:      writeTimeout,
+				IdleTimeout:       idleTimeout,
+				ReadHeaderTimeout: headerTimeout,
+				MaxHeaderBytes:    1 << 20, // 1 MB
 			},
 		},
 		sdkserver.Listener{
 			Label: "private",
-			Addr:  cfg.privateAddr,
+			Addr:  privateAddr,
 			Server: &http.Server{
-				Handler:           newPrivateMux(svc, boot.ddb, boot.verify.service, &cfg),
-				ReadTimeout:       boot.timeouts.read,
-				WriteTimeout:      boot.timeouts.write,
-				IdleTimeout:       boot.timeouts.idle,
-				ReadHeaderTimeout: boot.timeouts.header,
-				MaxHeaderBytes:    1 << 20,
+				Handler:           newPrivateMux(svc, svr.ddb, svr.verify.service, ddbTable),
+				ReadTimeout:       readTimeout,
+				WriteTimeout:      writeTimeout,
+				IdleTimeout:       idleTimeout,
+				ReadHeaderTimeout: headerTimeout,
+				MaxHeaderBytes:    1 << 20, // 1 MB
 			},
 		},
 	)

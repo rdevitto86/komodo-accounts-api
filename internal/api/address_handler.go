@@ -111,3 +111,19 @@ func (s *Service) DeleteAddressHandler(wtr http.ResponseWriter, req *http.Reques
 	logger.Info("deleted account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "address"))
 	wtr.WriteHeader(http.StatusNoContent)
 }
+
+func (s *Service) GetAddressHandler(wtr http.ResponseWriter, req *http.Request) {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
+		logger.Warn("rejected unauthorized request", nil)
+		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
+		return
+	}
+
+	if req.PathValue("id") == "" {
+		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
+		return
+	}
+
+	httpErr.SendError(wtr, req, httpErr.Global.NotImplemented)
+}

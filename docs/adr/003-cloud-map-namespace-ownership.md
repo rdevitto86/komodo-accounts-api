@@ -4,7 +4,7 @@
 - **Date:** 2026-07-26
 - **Deciders:** advisor (delegated — no org-level service-discovery owner exists to consult)
 - **Supersedes:** —
-- **Related:** `deploy/cdk/main.ts:164-176`, `TODO.md` item 17.10, ADR 001 (private-plane contract)
+- **Related:** `deploy/cdk/main.ts:164-176`, ADR 001 (private-plane contract)
 
 ## Context
 
@@ -15,7 +15,7 @@ private/m2m port is reachable by service name rather than IP.
 A CloudFormation stack that *creates* a namespace also *owns* it. A second service issuing the same
 `PrivateDnsNamespace` create against the same VPC fails its deploy with a name conflict.
 
-Two facts, verified across all Komodo repositories on 2026-07-26:
+Three facts, verified across all Komodo repositories on 2026-07-26:
 
 1. **No other service references Cloud Map at all.** Grepping every non-`node_modules` CDK entrypoint
    in all 14 org directories returns exactly one hit — this repo.

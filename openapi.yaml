@@ -10,8 +10,7 @@ info:
     - Public (7051): account-facing profile endpoints; require user JWT
     - Internal (7052): service-to-service account lookup endpoints; require service JWT
 
-    **Auth:** All `/v1/me/profile`, `/v1/me/addresses`, `/v1/me/payments`, and `/v1/me/preferences`
-    routes require a user-scoped JWT (`Authorization: Bearer <token>`).
+    **Auth:** All `/v1/me/*` routes require a user-scoped JWT (`Authorization: Bearer <token>`).
     Internal `/v1/accounts/{id}/*` routes require a service-scoped JWT (`svc:` prefix claim).
 
     **HTTP conventions:**
@@ -32,6 +31,7 @@ tags:
   - name: Addresses
   - name: Payments
   - name: Preferences
+  - name: Settings
   - name: Consent
   - name: Internal
 
@@ -49,6 +49,20 @@ paths:
       responses:
         "200":
           description: Service is healthy
+
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness check
+      description: >-
+        Confirms the DynamoDB table is reachable. Served on both the public and private listeners.
+      operationId: readyCheck
+      security: []
+      responses:
+        "200":
+          description: Service is ready
+        "503":
+          description: A dependency is unreachable
 
   /v1/accounts/exists:
     get:
@@ -148,51 +162,50 @@ paths:
     delete:
       tags: [Profile]
       summary: Account closure / right-to-delete
-      description: Initiates a 30-day soft-delete window; satisfies GDPR right to erasure, CCPA/CPRA right to delete, VCDPA, and CPA. Data is permanently erased after the window expires unless restored.
+      description: >-
+        Permanently and irreversibly erases the account and every record tied to it — profile,
+        settings, preferences, addresses, payment-method summaries, passkeys, consent history,
+        exported files, and the stored avatar — and releases the email address for reuse.
+        Satisfies GDPR right to erasure, CCPA/CPRA right to delete, VCDPA, and CPA.
+
+        There is no recovery period and no pending state: once this returns 204 the account is gone.
+        Because the action cannot be undone, `confirm_email` is mandatory and must equal the
+        authenticated account's own email address; a request without it, or with a mismatched value,
+        is rejected with 400 and nothing is erased.
+
+        A customer who wants a copy of their data must call POST /v1/me/profile/export first and
+        retrieve it. Closure neither produces nor waits on an export.
+
+        Planned second control (not yet active): the caller's token must carry an `auth_time` claim
+        within the last 5 minutes, else 401 `reauthentication_required`. Gated on auth-api issuing
+        that claim.
       operationId: deleteProfile
       x-visibility: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteProfileRequest"
       responses:
-        "202":
-          description: Account closure requested
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
+        "204":
+          description: Account and all associated data permanently erased
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /v1/me/profile/restore:
-    post:
-      tags: [Profile]
-      summary: Restore account from pending deletion
-      description: Cancels a pending account closure if within the 30-day window. Requires account JWT.
-      operationId: restoreProfile
-      x-visibility: public
-      responses:
-        "200":
-          description: Account restored
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
   /v1/me/profile/export:
     post:
       tags: [Profile]
       summary: Data download / right-to-access
-      description: Exports all personal data and returns a pre-signed URL to a JSON download; satisfies GDPR right of access and CCPA right to know.
+      description: >-
+        Exports all personal data and returns a pre-signed URL to a JSON download; satisfies GDPR
+        right of access and CCPA right to know. This is a standalone action, not a step within
+        account closure — a customer who wants their data before closing their account calls this
+        first and retrieves the file, then calls DELETE /v1/me/profile separately.
       operationId: exportProfile
       x-visibility: public
       responses:
@@ -205,15 +218,56 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /v1/me/profile/email:
+    put:
+      tags: [Profile]
+      summary: Change the account's email address
+      description: >-
+        NOT IMPLEMENTED — returns 501. Contract reserved ahead of implementation.
+
+        Email is immutable via PUT /v1/me/profile (see UpdateAccountRequest), so this is the only
+        route by which a customer can change it. Split out rather than folded into the profile
+        update because an email change is not a field write: it must re-check global uniqueness
+        against GSI1, move the email reservation, reset AccountSettings.email_verified to false,
+        and hand off to auth-api for confirmation of the new address before it becomes effective.
+
+        This is the route that makes the account.email_changed domain event reachable; until it
+        ships, that event can never fire.
+      operationId: updateEmail
+      x-visibility: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEmailRequest"
+      responses:
+        "202":
+          description: >-
+            Change accepted and pending confirmation of the new address. The account's email is
+            unchanged until confirmation completes.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "501":
+          description: Not implemented
+
   /v1/me/profile/avatar:
     post:
       tags: [Profile]
       summary: Get avatar upload URL
-      description: Returns a 15-minute pre-signed S3 PUT URL. Client uploads the image directly to S3, then updates the profile avatar_url field via PUT /v1/me/profile.
+      description: >-
+        Returns a 15-minute pre-signed S3 PUT URL. Client uploads the image directly to S3, then
+        updates the profile avatar_url field via PUT /v1/me/profile.
+
+        An account has exactly one avatar, stored at a fixed key, so an upload replaces any previous
+        image rather than adding a version. The URL is time-limited, not single-use: it may be used
+        more than once until it expires.
       operationId: getAvatarUploadURL
       x-visibility: public
-      security:
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -232,7 +286,90 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+    delete:
+      tags: [Profile]
+      summary: Remove the account's avatar image
+      description: >-
+        NOT IMPLEMENTED — returns 501. Contract reserved ahead of implementation.
+
+        Clears Account.avatar_url and deletes the underlying S3 object at the account's fixed avatar
+        key. A profile update that blanks avatar_url only clears the reference and leaves the stored
+        object orphaned, so this route is the only path that actually removes the image.
+      operationId: deleteAvatar
+      x-visibility: public
+      responses:
+        "204":
+          description: Avatar removed, or the account had none
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "501":
+          description: Not implemented
+
   # ── Consent ──────────────────────────────────────────────────────────────
+
+  /v1/me/consents:
+    get:
+      tags: [Consent]
+      summary: List the authenticated account's marketing consent history
+      description: >-
+        NOT IMPLEMENTED — returns 501. Contract reserved ahead of implementation.
+
+        Returns the append-only ConsentLog for the account, newest first. Until this ships, a
+        customer's only route to their own consent history is to generate a full data export.
+
+        Wraps the existing repository method ListConsentHistory.
+      operationId: getConsents
+      x-visibility: public
+      responses:
+        "200":
+          description: Consent history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConsentLog"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "501":
+          description: Not implemented
+
+    post:
+      tags: [Consent]
+      summary: Record a marketing consent decision for the authenticated account
+      description: >-
+        NOT IMPLEMENTED — returns 501. Contract reserved ahead of implementation.
+
+        Appends an opt-in or opt-out decision to the account's consent ledger. This is the only
+        authenticated consent write: POST /v1/communications/unsubscribe is unauthenticated,
+        token-bound, and opt-out only, so before this route ships there is no way for a signed-in
+        customer to opt IN at all, and withdrawal requires possession of a marketing email.
+
+        Required for GDPR Art. 7(3) — withdrawing consent must be as easy as giving it.
+
+        Wraps the existing repository method AppendConsentLog. The ledger is append-only: a
+        subsequent decision supersedes an earlier one, it never rewrites or deletes it.
+      operationId: recordConsent
+      x-visibility: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordConsentRequest"
+      responses:
+        "201":
+          description: Consent decision recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentLog"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "501":
+          description: Not implemented
 
   /v1/communications/unsubscribe:
     post:
@@ -299,6 +436,30 @@ paths:
   /v1/me/addresses/{id}:
     parameters:
       - $ref: "#/components/parameters/AddressID"
+
+    get:
+      tags: [Addresses]
+      summary: Get a single address
+      description: >-
+        NOT IMPLEMENTED — returns 501. Contract reserved ahead of implementation.
+
+        Routes onto the existing repository method GetAddress, which is currently unreachable dead
+        code. Saves clients fetching the whole address book to render or re-validate one entry.
+      operationId: getAddress
+      x-visibility: public
+      responses:
+        "200":
+          description: Address
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Address"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "501":
+          description: Not implemented
 
     put:
       tags: [Addresses]
@@ -385,6 +546,30 @@ paths:
     parameters:
       - $ref: "#/components/parameters/PaymentID"
 
+    get:
+      tags: [Payments]
+      summary: Get a single payment method
+      description: >-
+        NOT IMPLEMENTED — returns 501. Contract reserved ahead of implementation.
+
+        Routes onto the existing repository method GetPayment, which is currently unreachable dead
+        code. Returns the display-safe summary only — the PSP token is never included.
+      operationId: getPayment
+      x-visibility: public
+      responses:
+        "200":
+          description: Payment method
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentMethod"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "501":
+          description: Not implemented
+
     delete:
       tags: [Payments]
       summary: Remove a payment method
@@ -441,16 +626,37 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
-    delete:
-      tags: [Preferences]
-      summary: Delete account preferences
-      operationId: deletePreferences
+  # ── Settings ─────────────────────────────────────────────────────────────
+
+  /v1/me/settings:
+    get:
+      tags: [Settings]
+      summary: Get the authenticated account's own settings
+      description: >-
+        NOT IMPLEMENTED — returns 501. Contract reserved ahead of implementation.
+
+        Read-only projection of AccountSettings for the account owner, exposing only
+        email_verified, phone_verified, and status. Internal cross-service labels (tags) and the
+        optimistic-concurrency version are deliberately excluded — those exist for service callers
+        on GET /v1/accounts/{id}/settings and are not customer-facing.
+
+        There is no public write counterpart: verification state is set by auth-api and lifecycle
+        status by internal systems, both over the private plane.
+      operationId: getMySettings
       x-visibility: public
       responses:
-        "204":
-          description: Preferences deleted
+        "200":
+          description: Own account settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MySettings"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "501":
+          description: Not implemented
 
   # ── Internal ─────────────────────────────────────────────────────────────
 
@@ -795,7 +1001,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
-  /internal/v1/accounts/{id}/communications/unsubscribe-token:
+  /v1/accounts/{id}/communications/unsubscribe-token:
     parameters:
       - $ref: "#/components/parameters/AccountID"
     post:
@@ -1001,12 +1207,33 @@ components:
         is_default:
           type: boolean
 
+    DeleteProfileRequest:
+      type: object
+      description: >-
+        Confirmation payload for account closure. Closure is immediate and irreversible, so the
+        caller must demonstrate intent rather than merely being authenticated — this guards against
+        an accidental client-side call and against a stolen session being used to destroy an
+        account.
+      required: [confirm_email]
+      properties:
+        confirm_email:
+          type: string
+          format: email
+          description: >-
+            Must equal the authenticated account's own email address, compared case-insensitively
+            after trimming. A mismatch or an absent value returns 400 and erases nothing.
+
     AvatarUploadRequest:
       type: object
       description: >-
         Declares the image the client intends to upload. The returned pre-signed URL is bound to
-        exactly this content type and byte length, so the subsequent S3 PUT must match both or the
+        exactly this content type — the subsequent S3 PUT must send a matching Content-Type or the
         signature is rejected.
+
+        `content_length` is validated on this request but is NOT bound into the signature: SigV4
+        omits Content-Length from the signed header set for a body-less signing request, so the
+        2 MiB limit is not enforced by S3 at upload time. The limit is bounded in practice by the
+        fixed single-object key — repeated uploads overwrite rather than accumulate.
       required: [content_type, content_length]
       properties:
         content_type:
@@ -1085,11 +1312,12 @@ components:
           type: boolean
         status:
           type: string
-          enum: [active, suspended, closed, pending_deletion]
+          enum: [active, suspended, closed]
           description: >-
             Account lifecycle status, so auth-api can refuse login for suspended or closed
-            accounts. `pending_deletion` MUST remain loggable-in — the 30-day restore flow
-            (POST /v1/me/profile/restore) requires an authenticated session.
+            accounts. There is no `pending_deletion` state: account closure erases the account
+            immediately, so a closed-then-erased account resolves as not-found rather than as a
+            status value.
         auth_methods:
           type: array
           items:
@@ -1171,7 +1399,7 @@ components:
           format: date-time
         status:
           type: string
-          enum: [active, suspended, closed, pending_deletion]
+          enum: [active, suspended, closed]
         status_reason:
           type: string
         status_changed_at:
@@ -1200,7 +1428,7 @@ components:
           format: date-time
         status:
           type: string
-          enum: [active, suspended, closed, pending_deletion]
+          enum: [active, suspended, closed]
         status_reason:
           type: string
         status_changed_at:
@@ -1228,6 +1456,54 @@ components:
         version:
           type: integer
           minimum: 0
+
+    UpdateEmailRequest:
+      type: object
+      description: >-
+        Email change request. `confirm_password` is absent by design — Komodo is passwordless-primary
+        and this service is not an authenticator; re-authentication strength is auth-api's concern
+        via the future auth_time claim (ADR 001 D3).
+      required: [new_email]
+      properties:
+        new_email:
+          type: string
+          format: email
+          description: The address to change to. Must not already be registered to another account.
+
+    RecordConsentRequest:
+      type: object
+      description: >-
+        A single marketing consent decision. Server-derived fields on the stored ConsentLog entry
+        (recorded_at, ip_address, user_agent) are never accepted from the client — they are captured
+        from the request itself as compliance evidence.
+      required: [channel, action]
+      properties:
+        channel:
+          type: string
+          enum: [email, sms, push, postal]
+        action:
+          type: string
+          enum: [opt_in, opt_out]
+        source:
+          type: string
+          description: >-
+            Where the decision originated (e.g. "account_settings", "checkout"). Defaults to the
+            authenticated self-service surface when omitted.
+
+    MySettings:
+      type: object
+      description: >-
+        Owner-visible subset of AccountSettings. Excludes tags and version — see
+        GET /v1/me/settings.
+      required: [email_verified, phone_verified, status]
+      properties:
+        email_verified:
+          type: boolean
+        phone_verified:
+          type: boolean
+        status:
+          type: string
+          enum: [active, suspended, closed]
 
     ConsentLog:
       type: object

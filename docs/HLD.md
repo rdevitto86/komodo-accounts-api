@@ -27,7 +27,7 @@ Both planes are served by the same deployable service — one artifact, two list
 | Exposure | Reachable from the internet, behind a load balancer and a web application firewall | Reachable only from inside Komodo's private network — sibling services only |
 | Callers | The web/app front end, on behalf of a signed-in customer | Sibling Komodo services (auth-api, payments-api, order-api, communications-api) |
 | Auth | Customer access token, signature-verified on every request | Service access token, issued through machine-to-machine credential exchange, signature-verified on every request |
-| Surface | Profile (including avatar upload), settings, addresses, payments (display-safe view only), preferences, consent, account closure and restore, data export, unsubscribe verification | Credential read/write, passkey lifecycle, full payment-method read (including the processor reference), settings and tag writes, unsubscribe-token issuance, the hard-erase worker |
+| Surface | Profile (including avatar upload), settings, addresses, payments (display-safe view only), preferences, consent, account closure, data export, unsubscribe verification | Credential read/write, passkey lifecycle, payment-method read, settings and tag writes, unsubscribe-token issuance |
 | Rate limiting | Global and per-route limits, enforced at the network edge and in-process | Trusted callers only; no public-style limiter |
 
 <br/>
@@ -53,28 +53,30 @@ Both planes are served by the same deployable service — one artifact, two list
 
 **Profile management.** Customers and sibling services can create, read, and update a profile. Every update is partial: fields left out of a request are left untouched. Creation and update timestamps are stamped automatically. A change to a customer's email is detected and announced as its own event, separately from other profile changes, because email changes trigger their own downstream handling elsewhere in Komodo. Address and payment methods are the one exception to "partial update" — each write replaces the record whole, since they arrive as complete records from the customer or a payment processor rather than as field-by-field edits.
 
-**Avatar upload.** A customer requests a 15-minute, single-use upload link — capped at a small file size and restricted to standard image formats — and uploads their photo directly to storage, without routing the image through this service's own compute. This keeps upload cost and latency off this service's critical path. Storage itself is locked down to private, encrypted, secure-transport-only access; there is no public read path to any stored photo.
+**Avatar upload.** A customer requests a 15-minute upload link — capped at a small file size and restricted to standard image formats — and uploads their photo directly to storage, without routing the image through this service's own compute. This keeps upload cost and latency off this service's critical path. An account holds exactly one photo at a fixed location, so a new upload replaces the previous one and an account's photo storage can never grow beyond a single file no matter how often the link is used. Storage itself is locked down to private, encrypted, secure-transport-only access; there is no public read path to any stored photo. The link is time-limited, not single-use — it works repeatedly until it expires, which is why bounding what a single upload can write is the control that matters.
 
-**Account closure & right to erasure (US and EU privacy law).** Closure is two-phase: a recoverable window, then an irreversible, complete erasure. This design lets Komodo honor a customer's legal right to be forgotten while still protecting them from an accidental or malicious closure request. It satisfies the erasure guarantees under GDPR and the equivalent body of US state privacy law.
+**Account closure & right to erasure (US and EU privacy law).** Closure is immediate and irreversible: one request, one operation, everything gone. A recovery period was deliberately removed — the law bounds how long erasure may take, not how long it must be delayed, and holding a customer's data for weeks after they asked for it deleted works against the right rather than for it.
 
 | Step | Trigger | Action |
 |---|---|---|
-| 1. Request | Customer requests account closure | Account is marked pending deletion; no data is removed yet; an event announces the request; the customer receives immediate confirmation |
-| 2. Restore (optional) | Customer restores the account, inside the recoverable window | Account is marked active again; an event announces the cancellation |
-| 3. Hard erase | A scheduled process, once the recoverable window has passed | Every piece of data tied to the account — records and stored files alike — is permanently removed in one atomic operation; cached copies are invalidated; an event announces the completed erasure |
+| 1. Confirm | Customer requests account closure | The request must carry proof of intent; without it the request is rejected outright and nothing is removed |
+| 2. Erase | Confirmation accepted | Every piece of data tied to the account — records, exported files, and the stored photo alike — is removed in one operation; the email address is released for reuse; cached copies are invalidated; an event announces the completed erasure |
 
-Ownership of the scheduled erasure process itself is still being decided — whether it runs inside this service or as a consumer of the shared events pipeline. **NEEDS DECISION.**
+Because erasure now happens while the customer waits rather than in a background job, the completeness of that single operation is the guarantee the whole design rests on. A closure that only partly succeeds must report failure rather than success, and an unusually large account is the case that has to be handled explicitly rather than assumed away.
 
-**Data download — right to access (US and EU privacy law).** A customer can request a complete, portable export of everything tied to their account. Sensitive material — the payment processor reference and private credential material — is stripped before the export is written. The result is delivered as a single file behind a 15-minute download link.
+**Proof of intent.** Today the request must carry the account's own email address back to the service, which is checked against the stored value. A second control — requiring the customer to have signed in within the last few minutes — is specified but not yet active, because it depends on the login system recording when sign-in happened, which it does not do today. Shipping that check before the login system supports it would reject every closure request, so it waits.
+
+**Data download — right to access (US and EU privacy law).** A customer can request a complete, portable export of everything tied to their account. Private credential material is stripped before the export is written. The result is delivered as a single file behind a 15-minute download link. Export is a separate action a customer takes on their own, not a step inside closure: a customer who wants their data before closing requests it first and receives it, and closure neither produces nor waits on a copy. This service does not send email, so making closure wait on delivery confirmation would mean holding a request open across two systems.
 
 **Public unsubscribe.** A customer can opt out of a communications channel by following a link that carries a signed, tamper-evident, time-limited token rather than requiring them to be signed in — appropriate, since unsubscribe links are opened from an email client with no active session. A successful verification is recorded as a new consent entry; the token itself leaves no separate row in the database, only the resulting consent record. The link-minting action is available only to Komodo's messaging system, on a customer's behalf. The token stays valid for 30 days, tuned to match how long a typical customer leaves an email unread before acting on it; a much shorter window would generate support tickets from customers whose link "stopped working."
 
 ### 1.3 Edge Cases
 
-- **A credential lookup happens moments after a credential update.** The cache in front of that lookup isn't invalidated on update — the update path doesn't carry the information the cache is keyed on — so a brief stale read is accepted as within the cache's freshness budget.
+- **A credential lookup happens moments after a credential update.** The cache in front of that lookup is cleared on update, so the change is visible immediately on the instance that handled it. The cache lives inside each running copy of the service, so another copy may still serve the previous value until its own entry ages out — bounded by the refresh window in §2.5.3 and accepted as within the freshness budget.
+- **An account is suspended or closed while a sign-in lookup is cached.** Any change to an account's lifecycle status must clear the cached sign-in answer for that account. Without it, a suspended account keeps signing in successfully until the entry ages out, which turns a security control into a delayed one.
 - **A passkey sign-in attempt reports a lower usage counter than what's on file.** This is a strong signal of a cloned or replayed credential, so it's rejected outright at the storage layer, and the caller (auth-api) receives a clear conflict signal rather than a silent accept.
-- **A single account's erasure touches an unusually large number of records.** The erasure runs as a series of atomic batches; each batch is all-or-nothing, but very large accounts (rare) are not guaranteed to erase atomically end-to-end in a single step — this is logged as a warning for follow-up rather than causing the erasure to fail.
-- **An account tries to sign in while inside the recoverable closure window.** Not decided in this service — auth-api may choose to allow a warned sign-in and auto-restore, or block it outright; that call belongs to auth-api. **NEEDS DECISION** (owned by auth-api).
+- **A single account's erasure touches an unusually large number of records.** The erasure runs as a series of atomic batches; each batch is all-or-nothing, but a very large account (rare) is not guaranteed to erase atomically end-to-end in a single step. Now that erasure happens while the customer waits rather than in a background job, a batch failing partway must surface as a failed request that can be safely retried — not a warning logged behind a success. At realistic per-account volumes the whole erasure fits in one or two batches; the outlier is what this rule exists for.
+- **An account tries to sign in immediately after closure.** No longer a question: there is no recoverable window and no intermediate state, so the account and its credentials are simply gone and the sign-in lookup returns "no such account". This removes what was previously an open cross-team decision for the login system.
 - **An unsubscribe link is used more than once.** The second use is checked against the most recent consent record for that channel and treated as a harmless repeat — no duplicate record, no duplicate event.
 - **Two callers try to change the same account at once** — for example, two systems updating account status simultaneously, or two requests both trying to set a new default address or payment method. Settings changes are guarded so a conflicting write is rejected and the caller must re-fetch and retry, rather than silently overwriting another system's change. Default-address and default-payment switches happen as a single atomic operation, so a customer can never end up with two defaults, or none.
 
@@ -87,25 +89,31 @@ Ownership of the scheduled erasure process itself is still being decided — whe
 | Endpoint | Method | Plane | Purpose |
 |---|---|---|---|
 | `/health` | GET | both | Liveness check |
+| `/health/ready` | GET | both | Readiness check — confirms the data store is reachable |
 | `/v1/accounts/exists` | GET | public | Check if an email is registered (rate-limited oracle) |
 | `/v1/me/profile` | GET | public | Get authenticated account's profile |
 | `/v1/me/profile` | POST | public | Create account record (registration) |
 | `/v1/me/profile` | PUT | public | Update authenticated account's profile (partial) |
-| `/v1/me/profile` | DELETE | public | Account closure / right-to-delete (recoverable window) |
-| `/v1/me/profile/restore` | POST | public | Restore account from pending deletion |
+| `/v1/me/profile` | DELETE | public | Account closure / right-to-delete — immediate, irreversible, confirmation required |
 | `/v1/me/profile/export` | POST | public | Data download / right-to-access |
+| `/v1/me/profile/email` | PUT | public | Change email address — **stub, 501** |
 | `/v1/me/profile/avatar` | POST | public | Get avatar upload link (time-limited) |
+| `/v1/me/profile/avatar` | DELETE | public | Remove the avatar image and its stored object — **stub, 501** |
 | `/v1/communications/unsubscribe` | POST | public | Verify unsubscribe token and record consent opt-out |
+| `/v1/me/consents` | GET | public | List own marketing consent history — **stub, 501** |
+| `/v1/me/consents` | POST | public | Record an own marketing consent decision — **stub, 501** |
 | `/v1/me/addresses` | GET | public | List all addresses for the authenticated account |
 | `/v1/me/addresses` | POST | public | Add a new address |
+| `/v1/me/addresses/{id}` | GET | public | Get a single address — **stub, 501** |
 | `/v1/me/addresses/{id}` | PUT | public | Update an address (partial) |
 | `/v1/me/addresses/{id}` | DELETE | public | Delete an address |
 | `/v1/me/payments` | GET | public | List saved payment methods |
 | `/v1/me/payments` | PUT | public | Add or update a payment method (upsert) |
+| `/v1/me/payments/{id}` | GET | public | Get a single payment method — **stub, 501** |
 | `/v1/me/payments/{id}` | DELETE | public | Remove a payment method |
 | `/v1/me/preferences` | GET | public | Get account preferences |
 | `/v1/me/preferences` | PUT | public | Update account preferences (partial) |
-| `/v1/me/preferences` | DELETE | public | Delete account preferences |
+| `/v1/me/settings` | GET | public | Own verification + lifecycle state, tags excluded — **stub, 501** |
 | `/v1/accounts/{id}` | GET | private | Get profile by account ID (service-to-service) |
 | `/v1/accounts/{id}/addresses` | GET | private | Get addresses for an account (service-to-service) |
 | `/v1/accounts/{id}/preferences` | GET | private | Get preferences for an account (service-to-service) |
@@ -119,17 +127,24 @@ Ownership of the scheduled erasure process itself is still being decided — whe
 | `/v1/accounts/{id}/settings` | GET | private | Get account settings |
 | `/v1/accounts/{id}/settings` | PUT | private | Update account settings (partial) |
 | `/v1/accounts/{id}/settings/tags` | PUT | private | Update account tags (namespace-restricted) |
-| `/internal/v1/accounts/{id}/communications/unsubscribe-token` | POST | private | Mint stateless unsubscribe token |
+| `/v1/accounts/{id}/communications/unsubscribe-token` | POST | private | Mint stateless unsubscribe token |
 
 `openapi.yaml` is the versioned contract source of truth for request/response shapes and the full error catalog — this table is a map of what exists, not a substitute for it.
+
+Rows marked **stub, 501** have a registered route, a published contract entry, and a handler that
+authenticates the caller and then returns `501 Not Implemented`. They are reserved surface, not
+working features; implementation is tracked in `TODO.md` §26. Two routes were retired rather than
+stubbed: `POST /v1/me/profile/restore` (no longer meaningful once erasure became immediate and
+irreversible — ADR 001 D3) and `DELETE /v1/me/preferences` (no customer-facing meaning; it left an
+account with no language or timezone).
 
 **Consumer map**
 
 | Consumer | Pattern | Surface |
 |---|---|---|
 | auth-api | Private REST (hot path) | `GET /v1/accounts/credentials`, `PUT /v1/accounts/{id}/credentials`, passkey CRUD |
-| payments-api | Private REST | `GET /internal/v1/accounts/{id}/payments` (processor reference visible only here) |
-| order-api | Private REST | `GET /internal/v1/accounts/{id}/addresses`, `…/profile` |
+| payments-api | Private REST | `GET /v1/accounts/{id}/payments` — display-safe summaries only; the payment processor's own credential is held by payments-api, never by this service |
+| order-api | Private REST | `GET /v1/accounts/{id}/addresses`, `…/profile` |
 | communications-api | Private REST + events | profile, consent, preferences reads; unsubscribe-token mint; subscribes to `account.*` events |
 | loyalty-api | Events + private REST | Subscribes to `account.registered`, `account.deleted`, `account.status_changed`; writes its own tags via the settings-tags route |
 | promotions-api | Events + private REST | Subscribes to `account.consent_changed`, `account.tags_changed`; writes its own tags |
@@ -194,7 +209,8 @@ Full per-event derivation notes — how each event is computed from the underlyi
 | Unauthorized profile access | Every request requires a valid, signed access token; a customer's identity is always taken from their own verified token, never from a value they supply in the request path — closing off a class of "access someone else's account by editing the URL" attacks |
 | Payment data exposure | The processor's card reference is never included in any response except the one internal, tightly-scoped route built for the payments system to read it, which itself requires a verified service credential |
 | Personal data in logs | Logs carry only an account identifier — never a name, email, or phone number — enforced as a standing redaction rule |
-| Incomplete legal erasure | Erasure runs as a series of atomic, all-or-nothing batches across every piece of the account's data, including stored files, in the same operation that finalizes closure; unusually large accounts (over roughly 100 records) are flagged for follow-up rather than silently left incomplete |
+| Incomplete legal erasure | Erasure runs as a series of atomic, all-or-nothing batches across every piece of the account's data, including exported files and the stored photo, in the single operation that performs closure; an unusually large account (over roughly 100 records) spans more than one batch, and a batch failing partway reports a failed request that can be safely retried rather than a success with data left behind |
+| Irreversible closure by mistake or stolen session | Closure cannot be undone, so the request must prove intent before it is honored: today by carrying the account's own email address, and in future additionally by requiring a sign-in within the last few minutes. An unconfirmed request is rejected outright |
 | Account enumeration (registration check) | The "is this email already registered" check is a deliberate, narrow exception built for the sign-in screen, and it's throttled to roughly one request per second per caller — far tighter than any other public route — to prevent it being abused to mass-verify email addresses |
 | Account enumeration (credential lookup) | The credential lookup used by sign-in returns a distinct signal for "no such account" versus "lookup failed," but reveals nothing else — closing off the ability to infer whether an email is registered by watching for a different kind of failure |
 | Sign-in credential material on the server | Only the public half of any device-based sign-in credential is ever stored; the private half never leaves the customer's device, by design of the underlying standard |
@@ -204,7 +220,7 @@ Full per-event derivation notes — how each event is computed from the underlyi
 | Exported data exposure | Export files are stored privately, encrypted, transferred only over secure connections, expire automatically after 7 days, are only ever reachable through a 15-minute download link, and are deleted outright as part of account erasure |
 | Unauthenticated routes | None, apart from basic health checks, the unsubscribe verification route (which authenticates via its own signed token instead of a sign-in session), and the registration-check route (heavily rate-limited by design, see above) |
 | Cross-service write loss | A conflicting simultaneous write to account settings is rejected rather than silently overwritten, and the caller must re-fetch and retry; switching a default address or payment method happens as a single atomic operation for the same reason |
-| Avatar upload abuse | The upload link is single-use, valid for 15 minutes, capped at a small file size, and restricted to standard image formats — all enforced as part of the link itself, not left to the client to self-police — and every uploaded file lands in a private, encrypted, secure-transport-only store |
+| Avatar upload abuse | An account has exactly one photo at one fixed location, so repeated uploads overwrite rather than accumulate and an account's photo storage cannot grow. The link is valid for 15 minutes and restricted to standard image formats, enforced as part of the link itself. The size cap is the remaining control that must be enforced rather than advertised, since the link is reusable within its lifetime. Every uploaded file lands in a private, encrypted, secure-transport-only store |
 
 ### 2.5 Infrastructure
 
@@ -220,7 +236,7 @@ This service owns its data store outright — defined and created directly in th
 
 #### 2.5.3 Caches
 
-A short-lived, in-memory cache sits in front of the two hottest read paths — profile and credential lookups — refreshed every 60 seconds and capped at 100,000 entries, with older entries dropped first once that cap is reached. It lives inside each running instance of the service, so a customer could briefly see a slightly stale result depending on which instance handles their request, bounded by that 60-second refresh window. A shared, cross-instance cache was evaluated and deliberately not built for V1: the in-process approach comfortably meets the sign-in speed target at the current scale of roughly 10 million accounts; it's a candidate to revisit at 50 million accounts or if the service expands to multiple regions.
+A short-lived, in-memory cache sits in front of the two hottest read paths — profile and credential lookups — refreshed every 60 seconds and capped at 100,000 entries. Once the cap is reached, an expired entry is dropped to make room; the cache does not track recency or insertion order, so when nothing has expired the entry dropped is arbitrary rather than the oldest. It lives inside each running instance of the service, so a customer could briefly see a slightly stale result depending on which instance handles their request, bounded by that 60-second refresh window. A shared, cross-instance cache was evaluated and deliberately not built for V1: the in-process approach comfortably meets the sign-in speed target at the current scale of roughly 10 million accounts; it's a candidate to revisit at 50 million accounts or if the service expands to multiple regions.
 
 #### 2.5.4 Secrets Management
 
@@ -246,17 +262,27 @@ Logs are structured and machine-parseable, using Komodo's shared logging library
 
 #### 3.3.2 Metrics & Observability
 
-A basic liveness check (`GET /health`) confirms the service is running; a deeper readiness check (`GET /health/ready`) confirms it can reach its database, checked separately for both listeners. Metrics are published under this service's own namespace. Logs are retained for 30 days. Distributed tracing is not yet built for V1.
+A basic liveness check (`GET /health`) confirms the service is running; a deeper readiness check (`GET /health/ready`) confirms it can reach its database, checked separately for both listeners.
+
+**Measurement in V1 is log-derived, deliberately.** Every request produces one structured log line carrying its outcome, timing, size, and identifiers; the numbers behind the alarms below are counted from those lines rather than published as measurements in their own right. This is the whole of V1's measurement story — the V1 work is making it dependable (alarms that reach a person, correct alarm configuration, coverage for the failure modes currently unwatched), not broadening it. The trade-off accepted: a change to the shape of a log line can silently break a metric derived from it.
+
+First-class operational metrics, shipping logs to an external collector, and business trends derived from the change-notification stream are all V2 scope, recorded in the V2 decision record. Distributed tracing is not built for V1. Logs are retained for 30 days.
 
 #### 3.3.3 Alerts
 
-Defined for staging and production:
+Defined for staging and production. **Every alarm must notify a person** — an alarm that only changes colour on a dashboard is not monitoring, and each of these carries a notification destination.
 
-| Alarm | Fires on |
-|---|---|
-| Server errors | 10 or more server errors within a monitoring period |
-| Not-found responses on account routes | 100 or more not-found responses within a monitoring period |
-| Load balancer latency | Typical response time exceeding 500 ms, sustained over two consecutive monitoring periods |
+| Alarm | Fires on | Source |
+|---|---|---|
+| Server errors | 10 or more server errors within a monitoring period | Counted from logs |
+| Not-found responses on account routes | 100 or more not-found responses within a monitoring period | Counted from logs |
+| Load balancer errors | More than 5 server errors seen by the load balancer in a minute, sustained over two periods | Load balancer |
+| Response time | Slowest responses exceeding 500 ms, sustained over two consecutive periods | Load balancer |
+| Unhealthy instances | More than one instance failing its health check, sustained over two periods | Load balancer |
+| Processor usage | Above 80 %, sustained over three periods | Container platform |
+| Memory usage | Above 80 %, sustained over three periods | Container platform |
+
+Known coverage gaps, tracked rather than assumed away: client-error rate, data-store throttling and errors, firewall blocks, rejected connections, failed deployments, start-up crash loops, and certificate expiry. None has an alarm today.
 
 ---
 
@@ -279,7 +305,7 @@ No calendar dates are committed for either version; sequencing is by risk and de
 - **Lookup index** — an internal structure that lets email-based sign-in lookups avoid scanning every record for an account; changing what it returns requires rebuilding it, not just reconfiguring it (§2.2).
 - **Default flag** — the marker on an Address or Payment Method record identifying it as the one used automatically; switching it is enforced as a single atomic operation so an account can never end up with two defaults, or none (§2.3).
 - **Conflict-safe write (optimistic concurrency)** — the mechanism behind Account Settings writes: every write carries an expected version of the record, and a write against a stale version is rejected so the caller can re-fetch and retry instead of silently overwriting another system's change (§2.3).
-- **Soft-delete window** — the recoverable phase between an account-closure request and the scheduled hard-erase run (§1.2).
+- **Closure confirmation** — the proof of intent a closure request must carry before erasure runs, since closure is immediate and cannot be undone (§1.2).
 - **Consent log** — the append-only, per-channel opt-in/opt-out audit trail; the sole system of record for marketing consent, kept separate from day-to-day communication preferences (§2.3, data model reference §2.7).
 - **Tag namespace** — the naming convention that determines which internal Komodo system may attach which labels to an account, so one system can't overwrite another's labels (§2.3).
 - **CDC (change data capture)** — the automatic pipeline that turns every database change into a domain event for other systems to consume (§2.2).

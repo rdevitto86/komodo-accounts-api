@@ -26,12 +26,33 @@ Unlike auth-api's JWT signing key (two-slot overlap, old key still verifies unti
 
 2. **Update Secrets Manager:**
    ```bash
-   ENV=production  # or staging, dev
+   ENV=prod  # or stg — these are the only two deployable environments
    aws secretsmanager put-secret-value \
      --secret-id "komodo/${ENV}/accounts-api" \
      --secret-string "$(aws secretsmanager get-secret-value --secret-id "komodo/${ENV}/accounts-api" --query SecretString --output text | jq --arg s "$NEW_SECRET" '.UNSUBSCRIBE_TOKEN_SECRET = $s')"
    ```
-   This patches just the one key, preserving every other secret in the bundle (`JWT_PUBLIC_KEY`, `JWT_AUDIENCE`, `JWT_ISSUER`, `ACCOUNTS_API_CLIENT_ID`/`SECRET`, `DYNAMODB_TABLE`, IP allow/deny lists, rate-limit config, bucket names — see `secretKeys` in `cmd/server/setup.go`).
+   This patches just the one key, preserving every other secret in the bundle.
+
+   **What the bundle actually contains.** `secretKeys` (`cmd/server/setup.go`) fetches exactly six keys:
+
+   | Key | Purpose |
+   |---|---|
+   | `JWT_PUBLIC_KEY` | Verifies auth-api-issued tokens |
+   | `JWT_ISSUER` | Expected issuer on those tokens |
+   | `UNSUBSCRIBE_TOKEN_SECRET` | The HMAC key this runbook rotates |
+   | `IDEMPOTENCY_TTL_SEC` | Idempotency-key retention window |
+   | `RATE_LIMIT_RPS` | General rate limit |
+   | `RATE_LIMIT_BURST` | General rate-limit burst |
+
+   **Not in the bundle, despite what earlier versions of this runbook claimed:** `JWT_AUDIENCE` (the
+   two audience values are env vars with in-code defaults, not secrets); `DYNAMODB_TABLE` and the two
+   S3 bucket names (plain configuration set by the CDK task definition — names are not secrets and
+   putting them here would add rotation burden for no security gain); and IP allow/deny lists (never
+   fetched, and the middleware that would consume them is not wired into any chain).
+
+   `ACCOUNTS_API_CLIENT_ID` / `ACCOUNTS_API_CLIENT_SECRET` are **not fetched today** but are expected
+   to return: each environment gets its own generated client ID and secret, injected via CDK/CI-CD, so
+   this service can mint its own outbound service tokens. Revisit this table when that lands.
 
 3. **Restart every running task** (required — no hot-reload):
    ```bash
@@ -44,7 +65,7 @@ Unlike auth-api's JWT signing key (two-slot overlap, old key still verifies unti
    ```bash
    curl -f http://localhost:7051/health
    # Mint a token against a real test account, then verify it round-trips:
-   curl -X POST http://accounts-internal.<env>:7052/internal/v1/accounts/<test-id>/communications/unsubscribe-token \
+   curl -X POST http://accounts-api.komodo.internal:7052/v1/accounts/<test-id>/communications/unsubscribe-token \
      -H "Authorization: Bearer <service-jwt>" \
      -H 'Content-Type: application/json' \
      -d '{"channel": "email"}'

@@ -114,3 +114,14 @@ func (s *Service) UpdateSettingsTagsHandler(wtr http.ResponseWriter, req *http.R
 	wtr.WriteHeader(http.StatusOK)
 	writeJSON(wtr, updated)
 }
+
+func (s *Service) GetMySettingsHandler(wtr http.ResponseWriter, req *http.Request) {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
+		logger.Warn("rejected unauthorized request", nil)
+		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
+		return
+	}
+
+	httpErr.SendError(wtr, req, httpErr.Global.NotImplemented)
+}

@@ -7,42 +7,65 @@ import (
 	"github.com/rdevitto86/komodo-forge-sdk-go/security/jwt"
 )
 
-func setRequiredBaseEnv(t *testing.T) {
-	t.Helper()
-	t.Setenv("PORT", ":8080")
-	t.Setenv("PORT_PRIVATE", ":8081")
-	t.Setenv("DYNAMODB_TABLE", "accounts")
-}
-
-func TestLoadConfigErrorsOnMissingRequiredKeys(t *testing.T) {
-	if _, err := loadConfig(); err == nil {
-		t.Fatal("expected an error when required env vars are unset")
+func TestMissingKeys_AllPresent_ReturnsEmpty(t *testing.T) {
+	missing := missingKeys(
+		envVar{"PORT", ":8080"},
+		envVar{"PORT_PRIVATE", ":8081"},
+	)
+	if len(missing) != 0 {
+		t.Errorf("missingKeys() = %v, want empty", missing)
 	}
 }
 
-func TestLoadConfigPopulatesRequiredFields(t *testing.T) {
-	setRequiredBaseEnv(t)
+func TestMissingKeys_AllEmpty_ReturnsAllKeys(t *testing.T) {
+	missing := missingKeys(
+		envVar{"PORT", ""},
+		envVar{"PORT_PRIVATE", ""},
+	)
+	want := []string{"PORT", "PORT_PRIVATE"}
+	if len(missing) != len(want) {
+		t.Fatalf("missingKeys() = %v, want %v", missing, want)
+	}
+	for i := range want {
+		if missing[i] != want[i] {
+			t.Errorf("missingKeys()[%d] = %q, want %q", i, missing[i], want[i])
+		}
+	}
+}
 
-	cfg, err := loadConfig()
-	if err != nil {
-		t.Fatalf("loadConfig() returned an error: %v", err)
+func TestMissingKeys_MixedPresenceAndEmpty_PreservesInputOrder(t *testing.T) {
+	missing := missingKeys(
+		envVar{"PORT", ":8080"},
+		envVar{"PORT_PRIVATE", ""},
+		envVar{"DYNAMODB_TABLE", ""},
+		envVar{"S3_EXPORT_BUCKET", "bucket"},
+		envVar{"S3_AVATAR_BUCKET", ""},
+	)
+	want := []string{"PORT_PRIVATE", "DYNAMODB_TABLE", "S3_AVATAR_BUCKET"}
+	if len(missing) != len(want) {
+		t.Fatalf("missingKeys() = %v, want %v", missing, want)
 	}
-	if cfg.publicAddr != ":8080" || cfg.privateAddr != ":8081" {
-		t.Errorf("addresses = %q/%q, want :8080/:8081", cfg.publicAddr, cfg.privateAddr)
+	for i := range want {
+		if missing[i] != want[i] {
+			t.Errorf("missingKeys()[%d] = %q, want %q", i, missing[i], want[i])
+		}
 	}
-	if cfg.dynamoTable != "accounts" {
-		t.Errorf("dynamoTable = %q, want %q", cfg.dynamoTable, "accounts")
+}
+
+func TestMissingKeys_NoVars_ReturnsNil(t *testing.T) {
+	if missing := missingKeys(); missing != nil {
+		t.Errorf("missingKeys() = %v, want nil", missing)
 	}
 }
 
 func TestLoadBootstrapSecretsErrorsOnMissingRequiredKeys(t *testing.T) {
-	if _, _, _, _, err := loadBootstrapSecrets(map[string]string{}); err == nil {
+	if _, _, _, _, err := setBootstrapSecrets(map[string]string{}); err == nil {
 		t.Fatal("expected an error when required secret-backed env vars are unset")
 	}
 }
 
 func TestLoadBootstrapSecretsPopulatesJWTAndUnsubscribeMaterial(t *testing.T) {
-	jwtPublicKey, jwtIssuer, unsubscribeKey, idempotencyTTLSec, err := loadBootstrapSecrets(map[string]string{
+	jwtPublicKey, jwtIssuer, unsubscribeKey, idempotencyTTLSec, err := setBootstrapSecrets(map[string]string{
 		jwt.JWT_PUBLIC_KEY:     "pem",
 		jwt.JWT_ISSUER:         "https://auth.komodo.test",
 		unsubscribeTokenSecret: "unsub-key",
@@ -63,7 +86,7 @@ func TestLoadBootstrapSecretsPopulatesJWTAndUnsubscribeMaterial(t *testing.T) {
 }
 
 func TestLoadBootstrapSecretsAppliesIdempotencyTTLDefault(t *testing.T) {
-	_, _, _, idempotencyTTLSec, err := loadBootstrapSecrets(map[string]string{
+	_, _, _, idempotencyTTLSec, err := setBootstrapSecrets(map[string]string{
 		jwt.JWT_PUBLIC_KEY:     "pem",
 		jwt.JWT_ISSUER:         "https://auth.komodo.test",
 		unsubscribeTokenSecret: "unsub-key",

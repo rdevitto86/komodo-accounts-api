@@ -26,6 +26,36 @@ rules:
     GET:
       level: "ignore"
 
+  "/health/ready":
+    GET:
+      level: "ignore"
+
+  # ---------------------------------------------------------------------------
+  # Account existence probe — /accounts/exists
+  # ---------------------------------------------------------------------------
+  "/accounts/exists":
+    GET:
+      level: "lenient"
+      query:
+        email:
+          type: "string"
+          required: true
+
+  # ---------------------------------------------------------------------------
+  # Consent — /communications/unsubscribe (unauthenticated, HMAC token)
+  # ---------------------------------------------------------------------------
+  "/communications/unsubscribe":
+    POST:
+      level: "lenient"
+      headers:
+        Content-Type:
+          required: true
+          value: "application/json"
+      body:
+        token:
+          type: "string"
+          required: true
+
   # ---------------------------------------------------------------------------
   # Profile — /me/profile
   # ---------------------------------------------------------------------------
@@ -62,9 +92,6 @@ rules:
         phone:
           type: "string"
           required: false
-        middle_initial:
-          type: "string"
-          required: false
         avatar_url:
           type: "string"
           required: false
@@ -79,12 +106,6 @@ rules:
           required: true
           value: "application/json"
       body:
-        username:
-          type: "string"
-          required: false
-        email:
-          type: "string"
-          required: false
         first_name:
           type: "string"
           required: false
@@ -92,9 +113,6 @@ rules:
           type: "string"
           required: false
         phone:
-          type: "string"
-          required: false
-        middle_initial:
           type: "string"
           required: false
         avatar_url:
@@ -108,14 +126,6 @@ rules:
           required: true
           value: "Bearer *"
 
-  "/me/profile/restore":
-    POST:
-      level: "lenient"
-      headers:
-        Authorization:
-          required: true
-          value: "Bearer *"
-
   "/me/profile/export":
     POST:
       level: "lenient"
@@ -123,6 +133,21 @@ rules:
         Authorization:
           required: true
           value: "Bearer *"
+
+  "/me/profile/email":
+    PUT:
+      level: "lenient"
+      headers:
+        Authorization:
+          required: true
+          value: "Bearer *"
+        Content-Type:
+          required: true
+          value: "application/json"
+      body:
+        new_email:
+          type: "string"
+          required: true
 
   "/me/profile/avatar":
     POST:
@@ -141,6 +166,13 @@ rules:
         content_length:
           type: "number"
           required: true
+
+    DELETE:
+      level: "lenient"
+      headers:
+        Authorization:
+          required: true
+          value: "Bearer *"
 
   # ---------------------------------------------------------------------------
   # Addresses — /me/addresses
@@ -186,6 +218,18 @@ rules:
           required: false
 
   "/me/addresses/{id}":
+    GET:
+      level: "lenient"
+      headers:
+        Authorization:
+          required: true
+          value: "Bearer *"
+      params:
+        id:
+          type: "string"
+          required: true
+          pattern: "^[a-z]{2,6}_[a-zA-Z0-9]{12,32}$"
+
     PUT:
       level: "lenient"
       headers:
@@ -259,6 +303,18 @@ rules:
       # (provider token, billing zip, card type, etc.)
 
   "/me/payments/{id}":
+    GET:
+      level: "lenient"
+      headers:
+        Authorization:
+          required: true
+          value: "Bearer *"
+      params:
+        id:
+          type: "string"
+          required: true
+          pattern: "^[a-z]{2,6}_[a-zA-Z0-9]{12,32}$"
+
     DELETE:
       level: "lenient"
       headers:
@@ -299,9 +355,46 @@ rules:
           type: "string"
           required: false
 
-    DELETE:
+  # ---------------------------------------------------------------------------
+  # Settings — /me/settings (owner-visible read-only projection)
+  # ---------------------------------------------------------------------------
+  "/me/settings":
+    GET:
       level: "lenient"
       headers:
         Authorization:
           required: true
           value: "Bearer *"
+
+  # ---------------------------------------------------------------------------
+  # Consent — /me/consents (authenticated marketing consent ledger)
+  # ---------------------------------------------------------------------------
+  "/me/consents":
+    GET:
+      level: "lenient"
+      headers:
+        Authorization:
+          required: true
+          value: "Bearer *"
+
+    POST:
+      level: "lenient"
+      headers:
+        Authorization:
+          required: true
+          value: "Bearer *"
+        Content-Type:
+          required: true
+          value: "application/json"
+      body:
+        channel:
+          type: "string"
+          required: true
+          enum: ["email", "sms", "push", "postal"]
+        action:
+          type: "string"
+          required: true
+          enum: ["opt_in", "opt_out"]
+        source:
+          type: "string"
+          required: false

@@ -67,6 +67,8 @@ All events share this envelope structure.
 
 **CDC derivation:** Lambda compares `OLD.email` vs `NEW.email` and emits this event when they differ. Emitted alongside `account.profile_updated` when other non-email attributes also changed in the same record.
 
+**Not yet reachable.** No route mutates `email`: `PUT /v1/me/profile` drops it as immutable, and the private credentials route writes only the password hash. `PUT /v1/me/profile/email` is the route that will produce this event, and it is currently a 501 stub (ADR 001 D12, `TODO.md` 26.2). Until it ships, consumers should expect zero traffic on this event rather than treating its absence as an upstream fault.
+
 | Field | Type | Notes |
 |---|---|---|
 | `account_id` | string | |
@@ -131,7 +133,7 @@ All events share this envelope structure.
 | Field | Type | Notes |
 |---|---|---|
 | `account_id` | string | |
-| `old_status` | string | From OLD image; `active`, `suspended`, `closed`, or `pending_deletion` |
+| `old_status` | string | From OLD image; `active`, `suspended`, or `closed` |
 | `new_status` | string | From NEW image |
 | `status_reason` | string | From NEW image; present when `new_status != active` |
 | `status_changed_at` | string | RFC 3339; from NEW image |

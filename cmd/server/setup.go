@@ -70,42 +70,25 @@ type verifiers struct {
 	service *jwt.Client
 }
 
-type serverTimeouts struct {
-	boot     time.Duration
-	read     time.Duration
-	write    time.Duration
-	idle     time.Duration
-	header   time.Duration
-	shutdown time.Duration
-}
-
-type serviceTuning struct {
-	exportBucket  string
-	avatarBucket  string
-	presignExpiry time.Duration
-	unsubTokenTTL time.Duration
-	restoreWindow time.Duration
-	cacheTTL      time.Duration
-	cacheMaxSize  int
-}
-
 type bootstrapResult struct {
 	verify            verifiers
 	ddb               *awsddb.Client
 	s3Client          *sdks3.Client
 	unsubscribeKey    []byte
-	idempotencyTTLSec int64
 	generalLimiter    *ratelimit.Limiter
-	timeouts          serverTimeouts
-	tuning            serviceTuning
+	idempotencyTTLSec int64
 }
 
 func bootstrap() bootstrapResult {
-	timeouts := loadServerTimeouts()
+	boot := defaultBootTimeout
+	if v, err := time.ParseDuration(os.Getenv("BOOTSTRAP_TIMEOUT")); err == nil && v > 0 {
+		boot = v
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeouts.boot)
+	ctx, cancel := context.WithTimeout(context.Background(), boot)
 	defer cancel()
 
+	// init runtime logger
 	if err := logger.Init(logger.Config{
 		Level:  os.Getenv("LOG_LEVEL"),
 		Format: logger.FormatJSON,
@@ -115,14 +98,10 @@ func bootstrap() bootstrapResult {
 		os.Exit(1)
 	}
 
-	tuning, err := loadServiceTuning()
-	if err != nil {
-		logger.Fatal("failed to load service tuning configuration", err)
-	}
-
 	awsRegion := os.Getenv("AWS_REGION")
 	awsEndpoint := os.Getenv("AWS_ENDPOINT")
 
+	// init secrets manager
 	sm, err := awsSM.New(ctx, awsSM.Config{
 		Region:     awsRegion,
 		Endpoint:   awsEndpoint,
@@ -139,18 +118,10 @@ func bootstrap() bootstrapResult {
 		logger.Fatal("failed to fetch secrets", err)
 	}
 
-	jwtPublicKey, jwtIssuer, unsubscribeKey, idempotencyTTLSec, err := loadBootstrapSecrets(fetchedSecrets)
+	// store secrets in memory
+	jwtPublicKey, jwtIssuer, unsubscribeKey, idempotencyTTLSec, err := setBootstrapSecrets(fetchedSecrets)
 	if err != nil {
 		logger.Fatal("failed to load secret-backed configuration", err)
-	}
-
-	userAudience := defaultUserAudience
-	if v := os.Getenv("JWT_AUDIENCE_USER"); v != "" {
-		userAudience = v
-	}
-	serviceAudience := defaultServiceAudience
-	if v := os.Getenv("JWT_AUDIENCE_SERVICE"); v != "" {
-		serviceAudience = v
 	}
 
 	var rps float64 = defaultGeneralRPS
@@ -162,7 +133,17 @@ func bootstrap() bootstrapResult {
 		burst = v
 	}
 
+	// init rate limiter
 	generalLimiter := ratelimit.New(ratelimit.Config{RPS: rps, Burst: burst})
+
+	userAudience := defaultUserAudience
+	if v := os.Getenv("JWT_AUDIENCE_USER"); v != "" {
+		userAudience = v
+	}
+	serviceAudience := defaultServiceAudience
+	if v := os.Getenv("JWT_AUDIENCE_SERVICE"); v != "" {
+		serviceAudience = v
+	}
 
 	var (
 		verify     verifiers
@@ -232,103 +213,20 @@ func bootstrap() bootstrapResult {
 		logger.Attr("user_audience", userAudience),
 		logger.Attr("service_audience", serviceAudience),
 	)
+
 	return bootstrapResult{
 		verify:            verify,
 		ddb:               ddb,
 		s3Client:          s3Client,
 		unsubscribeKey:    unsubscribeKey,
-		idempotencyTTLSec: idempotencyTTLSec,
 		generalLimiter:    generalLimiter,
-		timeouts:          timeouts,
-		tuning:            tuning,
+		idempotencyTTLSec: idempotencyTTLSec,
 	}
-}
-
-// Helper that loads server timeout env vars.
-func loadServerTimeouts() serverTimeouts {
-	t := serverTimeouts{
-		boot:     defaultBootTimeout,
-		read:     defaultReadTimeout,
-		write:    defaultWriteTimeout,
-		idle:     defaultIdleTimeout,
-		header:   defaultHeaderTimeout,
-		shutdown: defaultShutdownTimeout,
-	}
-
-	if v, err := time.ParseDuration(os.Getenv("BOOTSTRAP_TIMEOUT")); err == nil && v > 0 {
-		t.boot = v
-	}
-	if v, err := time.ParseDuration(os.Getenv("SERVER_READ_TIMEOUT")); err == nil && v > 0 {
-		t.read = v
-	}
-	if v, err := time.ParseDuration(os.Getenv("SERVER_WRITE_TIMEOUT")); err == nil && v > 0 {
-		t.write = v
-	}
-	if v, err := time.ParseDuration(os.Getenv("SERVER_IDLE_TIMEOUT")); err == nil && v > 0 {
-		t.idle = v
-	}
-	if v, err := time.ParseDuration(os.Getenv("SERVER_READ_HEADER_TIMEOUT")); err == nil && v > 0 {
-		t.header = v
-	}
-	if v, err := time.ParseDuration(os.Getenv("SERVER_SHUTDOWN_TIMEOUT")); err == nil && v > 0 {
-		t.shutdown = v
-	}
-
-	return t
-}
-
-// Helper that loads service tuning env vars.
-func loadServiceTuning() (serviceTuning, error) {
-	t := serviceTuning{
-		exportBucket:  os.Getenv("S3_EXPORT_BUCKET"),
-		avatarBucket:  os.Getenv("S3_AVATAR_BUCKET"),
-		presignExpiry: defaultPresignExpiry,
-		unsubTokenTTL: defaultUnsubTokenTTL,
-		restoreWindow: defaultRestoreWindow,
-		cacheTTL:      defaultCacheTTL,
-		cacheMaxSize:  defaultCacheMaxSize,
-	}
-
-	if v, err := time.ParseDuration(os.Getenv("S3_PRESIGN_TTL")); err == nil && v > 0 {
-		t.presignExpiry = v
-	}
-	if v, err := time.ParseDuration(os.Getenv("UNSUBSCRIBE_TOKEN_TTL")); err == nil && v > 0 {
-		t.unsubTokenTTL = v
-	}
-	if v, err := time.ParseDuration(os.Getenv("SOFT_DELETE_WINDOW")); err == nil && v > 0 {
-		t.restoreWindow = v
-	}
-	if v, err := time.ParseDuration(os.Getenv("PROFILE_CACHE_TTL")); err == nil && v > 0 {
-		t.cacheTTL = v
-	}
-	if v, err := strconv.Atoi(os.Getenv("PROFILE_CACHE_MAX_ENTRIES")); err == nil && v > 0 {
-		t.cacheMaxSize = v
-	}
-
-	type s3Cfg struct {
-		key   string
-		value string
-	}
-	sc := []s3Cfg{
-		{"S3_EXPORT_BUCKET", t.exportBucket},
-		{"S3_AVATAR_BUCKET", t.avatarBucket},
-	}
-
-	var missing []string
-	for _, kv := range sc {
-		if kv.value == "" {
-			missing = append(missing, kv.key)
-		}
-	}
-	if len(missing) > 0 {
-		return t, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
-	}
-	return t, nil
 }
 
 // Helper that creates a new public mux server with dependencies.
 func newPublicMux(
-	svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client, cfg *config, generalLimiter *ratelimit.Limiter,
+	svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client, ddbTable string, generalLimiter *ratelimit.Limiter,
 ) *http.ServeMux {
 	publicRead := []routes.Middleware{
 		mw.RequestIDMiddleware,
@@ -356,7 +254,7 @@ func newPublicMux(
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health.HealthHandler)
 	mux.HandleFunc("GET /health/ready", health.NewReadyHandler([]health.Checker{
-		health.DynamoDBChecker("dynamodb", ddb, cfg.dynamoTable),
+		health.DynamoDBChecker("dynamodb", ddb, ddbTable),
 	}))
 
 	v1 := routes.NewRouter(mux, "/v1")
@@ -367,29 +265,38 @@ func newPublicMux(
 		me.Group("/profile", func(profile *routes.RouteGroup) {
 			profile.Use(publicRead...).Get(svc.GetProfileHandler)
 		})
-		// /v1/me/profile
 		me.Group("/profile", func(profile *routes.RouteGroup) {
 			profile.Use(publicWrite...)
 			profile.Post(svc.CreateAccountHandler)
 			profile.Put(svc.UpdateProfileHandler)
 			profile.Delete(svc.DeleteProfileHandler)
 		})
-		// /v1/me/profile/restore
-		me.Group("/profile/restore").Use(publicWrite...).Post(svc.RestoreProfileHandler)
+
 		// /v1/me/profile/export
 		me.Group("/profile/export").Use(publicWrite...).Post(svc.ExportProfileHandler)
+
+		// /v1/me/profile/email
+		me.Group("/profile/email").Use(publicWrite...).Put(svc.UpdateEmailHandler)
+
 		// /v1/me/profile/avatar
-		me.Group("/profile/avatar").Use(publicWrite...).Post(svc.AvatarUploadHandler)
+		me.Group("/profile/avatar", func(avatar *routes.RouteGroup) {
+			avatar.Use(publicWrite...)
+			avatar.Post(svc.AvatarUploadHandler)
+			avatar.Delete(svc.DeleteAvatarHandler)
+		})
 
 		// /v1/me/addresses
 		me.Group("/addresses", func(addresses *routes.RouteGroup) {
 			addresses.Use(publicRead...).Get(svc.GetAddressesHandler)
 		})
-		// /v1/me/addresses
 		me.Group("/addresses", func(addresses *routes.RouteGroup) {
 			addresses.Use(publicWrite...).Post(svc.AddAddressHandler)
 		})
+
 		// /v1/me/addresses/{id}
+		me.Group("/addresses/{id}", func(address *routes.RouteGroup) {
+			address.Use(publicRead...).Get(svc.GetAddressHandler)
+		})
 		me.Group("/addresses/{id}", func(address *routes.RouteGroup) {
 			address.Use(publicWrite...)
 			address.Put(svc.UpdateAddressHandler)
@@ -400,21 +307,36 @@ func newPublicMux(
 		me.Group("/payments", func(payments *routes.RouteGroup) {
 			payments.Use(publicRead...).Get(svc.GetPaymentsHandler)
 		})
-		// /v1/me/payments
 		me.Group("/payments", func(payments *routes.RouteGroup) {
 			payments.Use(publicWrite...).Put(svc.UpsertPaymentHandler)
 		})
+
 		// /v1/me/payments/{id}
+		me.Group("/payments/{id}", func(payment *routes.RouteGroup) {
+			payment.Use(publicRead...).Get(svc.GetPaymentHandler)
+		})
 		me.Group("/payments/{id}").Use(publicWrite...).Delete(svc.DeletePaymentHandler)
+
 		// /v1/me/preferences
 		me.Group("/preferences", func(preferences *routes.RouteGroup) {
 			preferences.Use(publicRead...).Get(svc.GetPreferencesHandler)
 		})
-		// /v1/me/preferences
 		me.Group("/preferences", func(preferences *routes.RouteGroup) {
 			preferences.Use(publicWrite...)
 			preferences.Put(svc.UpdatePreferencesHandler)
-			preferences.Delete(svc.DeletePreferencesHandler)
+		})
+
+		// /v1/me/settings
+		me.Group("/settings", func(settings *routes.RouteGroup) {
+			settings.Use(publicRead...).Get(svc.GetMySettingsHandler)
+		})
+
+		// /v1/me/consents
+		me.Group("/consents", func(consents *routes.RouteGroup) {
+			consents.Use(publicRead...).Get(svc.GetConsentsHandler)
+		})
+		me.Group("/consents", func(consents *routes.RouteGroup) {
+			consents.Use(publicWrite...).Post(svc.RecordConsentHandler)
 		})
 	})
 
@@ -447,7 +369,7 @@ func newPublicMux(
 }
 
 // Helper that creates a new private mux server with dependencies.
-func newPrivateMux(svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client, cfg *config) *http.ServeMux {
+func newPrivateMux(svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client, ddbTable string) *http.ServeMux {
 	internal := []routes.Middleware{
 		mw.RequestIDMiddleware,
 		mw.TelemetryMiddleware,
@@ -458,7 +380,7 @@ func newPrivateMux(svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client, 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health.HealthHandler)
 	mux.HandleFunc("GET /health/ready", health.NewReadyHandler([]health.Checker{
-		health.DynamoDBChecker("dynamodb", ddb, cfg.dynamoTable),
+		health.DynamoDBChecker("dynamodb", ddb, ddbTable),
 	}))
 
 	v1 := routes.NewRouter(mux, "/v1")
@@ -475,10 +397,13 @@ func newPrivateMux(svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client, 
 
 			// /v1/accounts/{id}/addresses
 			byID.Group("/addresses").Get(svc.GetAddressesHandler)
+
 			// /v1/accounts/{id}/preferences
 			byID.Group("/preferences").Get(svc.GetPreferencesHandler)
+
 			// /v1/accounts/{id}/payments
 			byID.Group("/payments").Get(svc.GetPaymentsHandler)
+
 			// /v1/accounts/{id}/credentials
 			byID.Group("/credentials").Put(svc.UpdateCredentialsHandler)
 
@@ -487,36 +412,35 @@ func newPrivateMux(svc *api.Service, ddb *awsddb.Client, jwtClient *jwt.Client, 
 				passkeys.Get(svc.GetPasskeysHandler)
 				passkeys.Post(svc.AddPasskeyHandler)
 			})
+
 			// /v1/accounts/{id}/passkeys/{credential_id}
 			byID.Group("/passkeys/{credential_id}", func(passkey *routes.RouteGroup) {
 				passkey.Patch(svc.UpdatePasskeyHandler)
 				passkey.Delete(svc.DeletePasskeyHandler)
 			})
+
 			// /v1/accounts/{id}/settings
 			byID.Group("/settings", func(settings *routes.RouteGroup) {
 				settings.Get(svc.GetSettingsHandler)
 				settings.Put(svc.UpdateSettingsHandler)
 				settings.Group("/tags").Put(svc.UpdateSettingsTagsHandler)
 			})
+
+			// TODO - ensure this will be used
+			byID.Group("/communications/unsubscribe-token").Post(svc.MintUnsubscribeTokenHandler)
 		})
 	})
-
-	// TODO - ensure this will be used
-	mux.Handle(
-		"POST /internal/v1/accounts/{id}/communications/unsubscribe-token",
-		routes.AppendMiddleware(svc.MintUnsubscribeTokenHandler, internal...),
-	)
 
 	return mux
 }
 
 // Helper that checks if the health check flag is set and runs the health check.
-func healthCheckMode(args []string, cfg *config) (code int, isHealthCheck bool) {
+func healthCheckMode(args []string, publicAddr, privateAddr string) (code int, isHealthCheck bool) {
 	if len(args) <= 1 || args[1] != "-healthcheck" {
 		return 0, false
 	}
-	if code := api.HealthProbe(cfg.publicAddr); code != 0 {
+	if code := api.HealthProbe(publicAddr); code != 0 {
 		return code, true
 	}
-	return api.HealthProbe(cfg.privateAddr), true
+	return api.HealthProbe(privateAddr), true
 }

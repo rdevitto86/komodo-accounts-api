@@ -202,24 +202,6 @@ export const buildWaf = (stack: cdk.Stack, alb: elbv2.ApplicationLoadBalancer): 
     ],
   });
 
-  waf.webAcl.addPropertyOverride('Rules.5', {
-    Name: 'BlockInternalPaths',
-    Priority: 6,
-    Action: { Block: {} },
-    Statement: {
-      ByteMatchStatement: {
-        SearchString: '/internal/',
-        FieldToMatch: { UriPath: {} },
-        TextTransformations: [{ Priority: 0, Type: 'NONE' }],
-        PositionalConstraint: 'STARTS_WITH',
-      },
-    },
-    VisibilityConfig: {
-      SampledRequestsEnabled: true,
-      CloudWatchMetricsEnabled: true,
-      MetricName: 'BlockInternalPaths',
-    },
-  });
   return waf;
 };
 

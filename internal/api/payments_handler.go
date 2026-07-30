@@ -81,3 +81,19 @@ func (s *Service) DeletePaymentHandler(wtr http.ResponseWriter, req *http.Reques
 	logger.Info("deleted account resource", nil, logger.Attr("account_id", accountID), logger.Attr("resource", "payment"))
 	wtr.WriteHeader(http.StatusNoContent)
 }
+
+func (s *Service) GetPaymentHandler(wtr http.ResponseWriter, req *http.Request) {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
+		logger.Warn("rejected unauthorized request", nil)
+		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
+		return
+	}
+
+	if req.PathValue("id") == "" {
+		httpErr.SendError(wtr, req, httpErr.Global.BadRequest)
+		return
+	}
+
+	httpErr.SendError(wtr, req, httpErr.Global.NotImplemented)
+}

@@ -162,6 +162,28 @@ func (s *Service) AvatarUploadHandler(wtr http.ResponseWriter, req *http.Request
 	})
 }
 
+func (s *Service) UpdateEmailHandler(wtr http.ResponseWriter, req *http.Request) {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
+		logger.Warn("rejected unauthorized request", nil)
+		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
+		return
+	}
+
+	httpErr.SendError(wtr, req, httpErr.Global.NotImplemented)
+}
+
+func (s *Service) DeleteAvatarHandler(wtr http.ResponseWriter, req *http.Request) {
+	accountID := accountIDFromJWT(req)
+	if accountID == "" {
+		logger.Warn("rejected unauthorized request", nil)
+		httpErr.SendError(wtr, req, httpErr.Global.Unauthorized)
+		return
+	}
+
+	httpErr.SendError(wtr, req, httpErr.Global.NotImplemented)
+}
+
 // Helper that extracts the account ID from the JWT token in the request context.
 func accountIDFromJWT(req *http.Request) string {
 	id, _ := req.Context().Value(ctxKeys.USER_ID_KEY).(string)

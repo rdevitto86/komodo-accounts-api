@@ -41,8 +41,10 @@ Unless noted otherwise, changes to any of the records below are partial — a cu
 
 #### A. Customer Identity & Profile
 
-- **Account profile** — customers can view and update their core profile details (name, email, phone, profile photo reference, and similar identity fields).
-- **Profile photo upload** — customers can upload a photo through a time-limited, single-use upload link. See §3.2 for the size, format, and storage protections that apply.
+- **Account profile** — customers can view and update their core profile details (name, phone, profile photo reference, and similar identity fields).
+- **Email address change** — changing the email on an account is a separate, deliberate action rather than an ordinary profile edit, because the address is what identifies the account: it must still be unique across all customers, and the new address has to be confirmed before it takes effect. Until confirmation completes, the old address remains in force. *(Not yet built — the surface exists and is documented but returns "not implemented"; see §5.1.)*
+- **Profile photo upload** — customers can upload a photo through a time-limited upload link. An account has exactly one photo: a new upload replaces the previous one, and there is no version history. See §3.2 for the size, format, and storage protections that apply.
+- **Profile photo removal** — customers can remove their photo, which deletes the stored image itself rather than only clearing the reference to it. *(Not yet built — see §5.1.)*
 
 #### B. Saved Commerce Data
 
@@ -52,7 +54,9 @@ Unless noted otherwise, changes to any of the records below are partial — a cu
 #### C. Preferences & Account Settings
 
 - **Communication & locale preferences** — customers can set their language, timezone, and transactional communication choices across a defined set of communication channels; a request naming a channel outside that set is rejected. Marketing opt-in/opt-out is tracked separately, in the consent log described in the appendix, not as part of this preference set.
-- **Account settings** — tracks verification status (whether email and phone have been confirmed) and the account's lifecycle state (a defined set of states such as active, closed, and pending deletion), plus internal labels ("tags") other Komodo systems attach to the account. Each label category is restricted to the one system that owns it, so one team can't overwrite another's labels.
+- **Marketing consent, managed while signed in** — a signed-in customer can see the full history of every marketing opt-in and opt-out they have made, and can opt in or out at any time directly. This is deliberately distinct from the public unsubscribe link below: the link is opt-**out** only and requires the customer to have a marketing message in hand, so it cannot serve as the only way to manage consent. Europe's data-protection law requires withdrawing consent to be as easy as giving it, which is only true once both directions are available to a signed-in customer. Recording a decision never overwrites history — each decision is added to the permanent record. *(Not yet built — see §5.1.)*
+- **Account settings** — tracks verification status (whether email and phone have been confirmed) and the account's lifecycle state (a defined set of states: active, suspended, and closed), plus internal labels ("tags") other Komodo systems attach to the account. Each label category is restricted to the one system that owns it, so one team can't overwrite another's labels.
+- **Customers can see their own account state** — a customer can view whether their email and phone are confirmed and whether their account is active, suspended, or closed. They cannot see or change the internal labels, which exist only for other Komodo systems, and they cannot change verification or lifecycle state themselves — both are set by other systems. *(Not yet built — see §5.1.)*
 
 #### D. Passwordless Sign-in Credentials
 
@@ -60,16 +64,17 @@ Stores the public half of each device-based sign-in credential a customer regist
 
 #### E. Privacy & Compliance
 
-- **Account closure & right to erasure** — closing an account starts a 30-day recoverable window during which the customer can reverse the closure; once the window passes, all data tied to the account is permanently and completely removed. This satisfies the erasure rights guaranteed under Europe's GDPR, California's consumer privacy law, and several other US state privacy laws.
-- **Data download & right to access** — customers can request a complete, portable copy of their account data (profile, settings, preferences, addresses, payment method summaries, consent history, and credential records with sensitive material removed), delivered as a time-limited download link.
+- **Account closure & right to erasure** — closing an account removes every piece of data tied to it, immediately and permanently. There is no recovery period: once the request completes, the account is gone. Because the action cannot be undone, the request must carry an explicit confirmation before it is honored (see §2.2). This satisfies the erasure rights guaranteed under Europe's GDPR, California's consumer privacy law, and several other US state privacy laws.
+- **Data download & right to access** — customers can request a complete, portable copy of their account data (profile, settings, preferences, addresses, payment method summaries, consent history, and credential records with sensitive material removed), delivered as a time-limited download link. A customer who wants their data before closing their account requests the download first, as a separate action; closure does not produce, send, or wait on a copy.
 - **Public unsubscribe** — a customer can opt out of a communications channel using a limited-purpose, time-limited link, consistent with federal messaging laws (CAN-SPAM and TCPA). Komodo's messaging system requests these links on the customer's behalf.
 
 ### 2.2 Inputs & Expected Outputs
 
 - Sensitive information — full card numbers, private sign-in keys — is never included in anything this product returns; only safely shareable summaries (like a card's last four digits) are exposed.
 - Preference and settings values must come from a known, defined list of options; values outside that list are rejected rather than silently accepted.
-- Every data export and photo upload is delivered through a time-limited, single-purpose link rather than a permanent one.
+- Every data export and photo upload is delivered through a time-limited link rather than a permanent one. These links stop working when they expire; within their lifetime they may be used more than once.
 - Every unsubscribe link is time-limited and usable only for the specific account and channel it was issued for.
+- **Account closure requires explicit confirmation.** Because closure is immediate and irreversible, the request must prove the customer meant it: today by carrying the account's own email address back to us, and additionally in future by requiring the customer to have signed in within the last few minutes. A closure request without valid confirmation is rejected, not queued.
 
 ### 2.3 Failure Scenarios & Error Messaging
 
@@ -155,11 +160,11 @@ Each piece of this product's logic has its own automated correctness checks, run
 
 #### 4.2.2 Feature-Area Tests
 
-**NEEDS DECISION** — Target not yet set. A middle tier of testing — verifying a whole feature area works together, still without a live dependency — is planned but not yet built.
+**Decided — in scope for V1.** A middle tier verifying a whole feature area works together, still without a live dependency: each customer-facing route is driven through the real request-handling pipeline rather than by calling the underlying logic directly. This is the tier that catches a broken pipeline — a gap that has already cost this product a total outage of its signed-in surface, invisible to every other test.
 
 #### 4.2.3 Live-Dependency Integration Tests
 
-**NEEDS DECISION** — Target not yet set. Testing this product against a realistic, live-like version of its data store is planned but has been deliberately deferred to the next major version rather than included in V1.
+**Decided — in scope for V1**, reversing the earlier deferral to the next major version. This product is tested against a realistic, locally-run version of its data store, covering the behaviours a simulated store structurally cannot reproduce: conflicting simultaneous writes, all-or-nothing multi-record operations, and the lookup index used by sign-in.
 
 #### 4.2.4 End-to-End Tests
 
@@ -177,7 +182,8 @@ A separate suite of tests runs this product's key customer workflows against rea
 
 **Risks**
 
-- **Privacy breaches and incomplete legal deletions** — a partial erasure leaves data behind and creates legal exposure. *Mitigation:* account closure happens in two phases — a recoverable window, then a permanent, all-at-once removal designed to leave nothing behind (see §2.1).
+- **Privacy breaches and incomplete legal deletions** — a partial erasure leaves data behind and creates legal exposure. *Mitigation:* closure removes everything in one operation designed to leave nothing behind — records, exported files, and the stored photo alike (see §2.1). Because this now happens while the customer waits rather than in a background job, completeness of that single operation is the control that matters most: a closure that only partly succeeds must report failure rather than success.
+- **Irreversible closure by mistake or by a stolen session** — with no recovery period, a wrongly-issued closure cannot be walked back and support has no remedy to offer. *Mitigation:* the confirmation requirement in §2.2 — the request must carry the account's own email address, and in future must also come from a customer who signed in within the last few minutes.
 - **Performance as the customer base grows toward and beyond the scale target (§3.1)** — the underlying data organization scales well in general, but uneven usage patterns could create pockets of slowdown for some customers. **NEEDS DECISION** — Target not yet set; no mitigation beyond the current data organization has been defined.
 - **Data briefly out of sync with other systems** — this product does not guarantee a change is reflected everywhere in Komodo at the exact same instant. *Mitigation:* accepted as a trade-off; other systems are expected to tolerate a short delay rather than requiring perfect real-time consistency.
 - **Dependency risk with the login system** — any change to the shape of the credential data or the sign-in lookup result has to be coordinated across both products at the same time. *Mitigation:* changes to that shared contract go through a coordinated release process across both teams.
@@ -195,11 +201,23 @@ A separate suite of tests runs this product's key customer workflows against rea
 
 Everything described in Section 2 (Functional Capabilities) above. Work is sequenced by risk and dependency order rather than by fixed dates.
 
+**Reserved but not yet built.** The following capabilities from Section 2 have an agreed, documented interface that other teams can build against, but no working implementation behind it — a request to any of them is answered "not implemented." They are V1 scope and remain open work:
+
+| Capability | Why it's needed | Blocked on |
+|---|---|---|
+| Marketing consent management while signed in (§2.1 C) | Legal requirement — withdrawing consent must be as easy as giving it; today it needs a marketing email in hand, and opting in is impossible | Nothing — the underlying storage already exists |
+| Email address change (§2.1 A) | No way exists today for a customer to change the address that identifies their account | Coordination with the login system on confirming the new address |
+| Customer view of their own account state (§2.1 C) | Customers cannot currently see whether their email or phone is confirmed | Nothing |
+| Profile photo removal (§2.1 A) | Clearing a photo today leaves the stored image behind | Nothing |
+| Retrieving one saved address or payment method directly (§2.1 B) | Clients must fetch the whole list to show or re-check a single entry | Nothing |
+
 **NEEDS DECISION** — Target not yet set. No calendar date has been committed for the V1 launch.
 
 ### 5.2 Version 2.0.0
 
-Deferred to this next phase: more efficient browsing of large result lists; a second, geographically distributed layer of the fast-read cache; automatic resizing/transformation of uploaded profile photos; customer-owned shareable lists (such as wishlists or gift registries); and a more resilient way of preventing duplicate actions across regions.
+Deferred to this next phase: more efficient browsing of large result lists; a second, geographically distributed layer of the fast-read cache; automatic resizing/transformation of uploaded profile photos; customer-owned shareable lists (such as wishlists or gift registries); a more resilient way of preventing duplicate actions across regions; and richer measurement — first-class operational metrics and shipped-out logs, plus business trends derived from the change-notification stream, replacing V1's approach of counting patterns in log text.
+
+Also deferred to V2: **letting customers see and manage their own registered sign-in devices** from this product. In V1 those records are reachable only by the login system, which is the system that owns them; a customer-facing "my devices" screen is served through the login system rather than from here. See the V2 decision record for the reasoning.
 
 **NEEDS DECISION** — Target not yet set. No calendar date has been committed for V2.
 
@@ -209,8 +227,7 @@ Deferred to this next phase: more efficient browsing of large result lists; a se
 
 ### 6.1 Glossary
 
-- **Soft-delete window** — the recoverable period after a customer closes their account (duration stated in §2.1) during which the closure can still be reversed, before deletion becomes permanent.
-- **Pending deletion** — the status an account is in for the duration of the soft-delete window.
+- **Closure confirmation** — the proof of intent a closure request must carry before it is honored, since closure is immediate and cannot be undone (§2.2).
 - **Consent log / audit trail** — the permanent, append-only record of every marketing opt-in and opt-out a customer has made. It's kept separate from day-to-day communication preferences so there's always a verifiable history of consent.
 - **Default address / payment method** — the single saved address or payment method, per category, marked to be used automatically; only one item per account can hold this marker in each category.
 - **Tag namespace** — the naming convention that determines which internal Komodo system is allowed to attach which labels to an account, so that, for example, the loyalty program can't accidentally overwrite a label owned by customer support.

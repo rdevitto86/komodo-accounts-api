@@ -9,8 +9,10 @@
 | **P2** | S3 unreachable (exports or avatars bucket) | GDPR export (`POST /v1/me/profile/export`) and avatar upload fail; profile/address/payment CRUD unaffected |
 | **P2** | Elevated 5xx rate (`Account5xxAlarm`) | Degraded service for a subset of requests |
 | **P2** | `AccountNotFoundAlarm` firing at volume | Either a real outage on the credentials hot path or a caller (auth-api) pointed at the wrong route/id shape — see GO-gate history in `TODO.md` for this exact failure class recurring twice |
-| **P3** | `/v1/accounts/exists` abuse | Public, unauthenticated, per-IP rate-limited (1 rps / burst 5) but the limiter map never evicts idle entries (`TODO.md` 13.3) — sustained abuse from IP churn grows memory, not just request volume |
-| **P3** | `LatencyP99Alarm` silent | Known-broken: the CloudWatch dimension uses `loadBalancerArn` instead of `loadBalancerFullName` (`TODO.md` 13.5), so this alarm does not fire even under real p99 blowouts — treat p99 as unmonitored until that's fixed |
+| **P1** | Every authenticated public route returns 400 | Known-broken (`TODO.md` 24.1): the shared SDK's header validator has no JWT client injected, so `Authorization` fails validation on every `/v1/me/*` request. Symptom is a blanket `"request contents invalid"` with no route working and no 5xx to alarm on. Not a config problem — do not chase secrets or DynamoDB. Fixed by the SDK release tracked in 24.37 |
+| **P2** | Rate limiting appears global rather than per-client | Known-broken (`TODO.md` 24.4): `TRUSTED_PROXY_DEPTH` is unset, so the limiter keys on the ALB's IP and every internet client shares one bucket. A single caller can exhaust the limit for everyone, and the 1 rps enumeration guard on `/v1/accounts/exists` does not function. If 429s spike across unrelated customers at once, this is why |
+| **P3** | `LatencyP99Alarm`, `UnhealthyTargetsAlarm`, `High5xxErrorAlarm` silent | Known-broken (`TODO.md` 24.3): all three set the CloudWatch dimension to `loadBalancerArn` where `loadBalancerFullName` is required, so they sit permanently in OK. Treat p99, unhealthy hosts, and load-balancer 5xx as unmonitored until fixed |
+| **P3** | No alarm reaches a person | Known-broken (`TODO.md` 24.3): no SNS topic exists and no alarm carries a notification action. Every alarm below is a dashboard colour change only — incidents are currently found by someone looking |
 
 ## Immediate actions by severity
 
@@ -57,7 +59,11 @@ Single Fargate task serves both ports — public `7051` (external, via ALB) and 
    curl -f http://localhost:7052/health          # from within the VPC only
    ```
 
-If persistent after restart: check for a recent deploy/config change, secret format corruption, or the `validation_rules.yaml` shipping/path issue that has broken every public route with a blanket 400 twice before (`TODO.md` 11.1/11.3, 17.1 — both closed, but the same failure class is worth ruling out first on any "every route 400s" report).
+**On any "every public route returns 400" report**, work this order — the failure class has three known causes, two historical and one currently live:
+
+1. **The SDK header-validator gap (`TODO.md` 24.1) — live today.** No JWT client is injected into `api/headers`, so `Authorization` fails validation on every `/v1/me/*` route. This is the default explanation until the SDK fix lands; it is not environmental and will not resolve on restart.
+2. **`validation_rules.yaml` missing or unreadable at `EVAL_RULES_PATH`.** The rule loader fails closed: no rules means no matching rule, which means a blanket 400. Has caused this exact symptom twice historically. Confirm the file is present in the image and that `EVAL_RULES_PATH` matches.
+3. **A recent deploy or config change**, or secret-format corruption in the bundle.
 
 ### P1: DynamoDB unreachable
 
@@ -72,7 +78,9 @@ If persistent after restart: check for a recent deploy/config change, secret for
    ```bash
    curl -f http://localhost:7051/health/ready
    ```
-4. Note: `BatchGetItem` `UnprocessedKeys` are not retried today (`TODO.md` 17.2) — under partial throttling, the credentials hot path can silently return a spurious 404 (profile item unprocessed) or `email_verified:false` (settings item unprocessed) instead of a clean error. If login failures correlate with DynamoDB throttling metrics but `/health/ready` still reports healthy, this is the likely mechanism — it is a known open gap, not new corruption.
+4. Note: `BatchGetItem` `UnprocessedKeys` **are** retried — the SDK retries up to 5 times with backoff (`aws/dynamodb/operations.go:146-170,195`) and errors out if keys remain unprocessed. Earlier versions of this runbook said otherwise; that is no longer true.
+
+   The real hazard on this path is different (`TODO.md` 24.13): if the `SETTINGS` item is missing from the batch response, the code **defaults the account's status to `active`** rather than failing. The read is not strongly consistent, so this is reachable under eventual consistency, not only on genuine absence. Symptom: a suspended or closed account signing in successfully. Correlate with recent settings writes, not with throttling.
 
 ### P2: S3 unreachable (exports / avatars buckets)
 
@@ -84,23 +92,34 @@ If persistent after restart: check for a recent deploy/config change, secret for
    aws s3api head-bucket --bucket komodo-accounts-avatars-<env>
    ```
 2. **Check IAM task role** has the expected `PutObject`/`GetObject`/`DeleteObject` grants — both buckets share the task role (`buildAccountExportsBucket`/`buildAvatarsBucket`, `deploy/cdk/main.ts`).
-3. Export failures are **loud by design**: `DeleteProfile` fails the whole request with a 5xx if the S3-side export cleanup fails, rather than silently succeeding with orphaned S3 objects (`TODO.md` Stage 1). A spike in 5xx specifically on `DELETE /v1/me/profile` or `POST /v1/me/profile/export` points here first.
-4. Avatar presign path (`AvatarUploadHandler` / `GetAvatarUploadURL`) has zero test coverage today (`TODO.md` 17.13) — if it's implicated, verify behavior by hand against a real bucket rather than trusting existing tests to have caught a regression.
+3. Erasure failures are **loud by design**: account closure fails the whole request with a 5xx if the S3-side cleanup fails, rather than succeeding with orphaned objects left behind. A spike in 5xx specifically on `DELETE /v1/me/profile` or `POST /v1/me/profile/export` points here first.
+
+   **This matters more than it used to.** Closure now erases synchronously on the customer's request rather than in a background job, so an S3 outage turns directly into failed closures. Two known gaps compound it: the avatar object is not deleted at all (`TODO.md` 24.7), and the DynamoDB delete runs *before* the S3 cleanup, so a mid-operation failure can leave an account whose records are gone but whose files are not (`TODO.md` 24.17).
+4. Avatar presign path (`AvatarUploadHandler` / `GetAvatarUploadURL`) has thin test coverage — if it's implicated, verify behaviour by hand against a real bucket rather than trusting existing tests to have caught a regression.
 
 ### P3: `/v1/accounts/exists` abuse or rate-limiter memory growth
 
-1. Check the 429 rate on this route specifically — it's public, unauthenticated, and rate-limited per-IP (1 rps, burst 5), independent of the global rate limit.
-2. If request volume is fine but container memory is climbing anyway: the per-IP limiter map (`newExistsRateLimiter`, `cmd/server/setup.go`) is a plain `sync.Map` with no eviction — IP churn (not just request rate) grows it unboundedly (`TODO.md` 13.3). A restart clears it; there is no runtime mitigation short of a code fix.
-3. If sustained: check WAF rules on the ALB, consider an IP-based block at that layer rather than waiting on the in-process limiter.
+1. Check the 429 rate on this route specifically — it carries its own limiter (1 rps, burst 5) independent of the global one.
+2. **The limiter is not currently per-IP.** `TRUSTED_PROXY_DEPTH` is unset, so it keys on the ALB's address and every internet client shares one bucket (`TODO.md` 24.4). That means the enumeration guard this route exists for is not working, and it also means 429s here are not evidence of a single abusive client.
+3. Memory growth is bounded on this limiter — it sets `MaxEntries` (50,000) and a 300 s bucket TTL (`cmd/server/setup.go`). Earlier versions of this runbook said it never evicts; that is no longer true. The **general** limiter is the uncapped one (`TODO.md` 19.6), and it becomes a real concern only once per-IP keying is fixed.
+4. If sustained: check WAF rules on the ALB and consider an IP-based block at that layer. Note the two per-path WAF rate limits target paths that do not exist (`TODO.md` 17.3), so only the global 2000/5min WAF limit is currently doing anything.
 
-## Idempotency caveat (operational, not an incident by itself)
+## Idempotency caveats (operational, not an incident by itself)
 
-`configureIdempotencyStore()` is never called (`TODO.md` 13.4) — the idempotency middleware is wired on all public write routes, but runs with the SDK's zero-TTL default in effect, not the configured `IDEMPOTENCY_TTL_SEC`. In practice this means a retried write (client timeout + retry, BFF double-submit) has a much smaller idempotency window than the config implies. If you're investigating a suspected duplicate-write report (e.g. two addresses created from one user action), check this before assuming a bug in the conditional-write logic — the 12.7 conditional-write guards (409 on a supplied/replayed ID) only cover ID-bearing retries; a retry with no ID at all depends entirely on this middleware.
+The idempotency store **is** configured — `cmd/server/main.go:29` calls `idempotency.SetStore` with the `IDEMPOTENCY_TTL_SEC` value from the secret bundle. Earlier versions of this runbook said it was never called; that is no longer true.
+
+Three real caveats remain when investigating a suspected duplicate write (e.g. two addresses created from one user action):
+
+1. **The store is per-task and in-memory.** A retry that lands on a different task misses the cache entirely. With autoscaling above one task, cross-instance dedup does not exist — DynamoDB conditional writes are the actual correctness boundary, not the middleware.
+2. **Keys are globally namespaced** (`TODO.md` 24.21) — scoped by the header value alone, not by account, method, or path. A 409 on a write the customer never retried may be another customer's key collision.
+3. **A key is burned before the handler runs and never rolled back.** A write that 5xx'd still consumes its key for the full TTL, so the client's legitimate retry gets a 409 rather than a second attempt.
+
+The private plane bypasses the middleware entirely, so no service-to-service write is covered by it.
 
 ## Post-incident
 
 1. **Preserve logs.** Log group retention is `ONE_MONTH`, but **`RemovalPolicy.DESTROY`** (`deploy/cdk/main.ts`) — unlike the accounts table and the export/avatar buckets, the log group does **not** survive a stack teardown in any environment. Export relevant time ranges immediately if a teardown is anywhere on the horizon.
 2. **Timeline:** detection time, first response action, mitigation time, full resolution time.
 3. **Root cause analysis:** what failed, why, what would have caught it sooner.
-4. **Action items:** file `TODO.md` entries for any gap surfaced (this runbook should stay in sync with `TODO.md`'s open 13.x/14.x/15.x/17.x items — several of the caveats above are direct links to still-open items there).
+4. **Action items:** file `TODO.md` entries for any gap surfaced. Every "known-broken" caveat above cites a live `TODO.md` item — when one of those closes, update this runbook in the same change. Stale reassurance in a runbook is worse than no runbook: this document previously told responders that four things were broken which had already been fixed, and one was fixed which was not.
 5. **Communication:** notify auth-api (credentials hot-path consumer) and comms-api (unsubscribe-mint caller) if the incident affected either shared surface.
