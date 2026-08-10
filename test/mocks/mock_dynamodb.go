@@ -43,17 +43,17 @@ func (m *MockAPI) EXPECT() *MockAPIMockRecorder {
 }
 
 // BatchGetItemAs mocks base method.
-func (m *MockAPI) BatchGetItemAs(ctx context.Context, table string, keys []map[string]types.AttributeValue, out any) error {
+func (m *MockAPI) BatchGetItemAs(ctx context.Context, table string, batchKeys []map[string]types.AttributeValue, out any) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BatchGetItemAs", ctx, table, keys, out)
+	ret := m.ctrl.Call(m, "BatchGetItemAs", ctx, table, batchKeys, out)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // BatchGetItemAs indicates an expected call of BatchGetItemAs.
-func (mr *MockAPIMockRecorder) BatchGetItemAs(ctx, table, keys, out any) *gomock.Call {
+func (mr *MockAPIMockRecorder) BatchGetItemAs(ctx, table, batchKeys, out any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchGetItemAs", reflect.TypeOf((*MockAPI)(nil).BatchGetItemAs), ctx, table, keys, out)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchGetItemAs", reflect.TypeOf((*MockAPI)(nil).BatchGetItemAs), ctx, table, batchKeys, out)
 }
 
 // BuildKey mocks base method.
@@ -72,17 +72,17 @@ func (mr *MockAPIMockRecorder) BuildKey(pk, pv, sk, sv any) *gomock.Call {
 }
 
 // DeleteItem mocks base method.
-func (m *MockAPI) DeleteItem(ctx context.Context, table string, key map[string]types.AttributeValue, batch bool, keys []map[string]types.AttributeValue, cond *string) error {
+func (m *MockAPI) DeleteItem(ctx context.Context, table string, singleKey map[string]types.AttributeValue, batch bool, batchKeys []map[string]types.AttributeValue, cond *string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteItem", ctx, table, key, batch, keys, cond)
+	ret := m.ctrl.Call(m, "DeleteItem", ctx, table, singleKey, batch, batchKeys, cond)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // DeleteItem indicates an expected call of DeleteItem.
-func (mr *MockAPIMockRecorder) DeleteItem(ctx, table, key, batch, keys, cond any) *gomock.Call {
+func (mr *MockAPIMockRecorder) DeleteItem(ctx, table, singleKey, batch, batchKeys, cond any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteItem", reflect.TypeOf((*MockAPI)(nil).DeleteItem), ctx, table, key, batch, keys, cond)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteItem", reflect.TypeOf((*MockAPI)(nil).DeleteItem), ctx, table, singleKey, batch, batchKeys, cond)
 }
 
 // DescribeTable mocks base method.
@@ -100,32 +100,32 @@ func (mr *MockAPIMockRecorder) DescribeTable(ctx, table any) *gomock.Call {
 }
 
 // GetItem mocks base method.
-func (m *MockAPI) GetItem(ctx context.Context, table string, key map[string]types.AttributeValue, batch bool, keys []map[string]types.AttributeValue) (any, error) {
+func (m *MockAPI) GetItem(ctx context.Context, table string, singleKey map[string]types.AttributeValue, batch bool, batchKeys []map[string]types.AttributeValue) (any, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetItem", ctx, table, key, batch, keys)
+	ret := m.ctrl.Call(m, "GetItem", ctx, table, singleKey, batch, batchKeys)
 	ret0, _ := ret[0].(any)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetItem indicates an expected call of GetItem.
-func (mr *MockAPIMockRecorder) GetItem(ctx, table, key, batch, keys any) *gomock.Call {
+func (mr *MockAPIMockRecorder) GetItem(ctx, table, singleKey, batch, batchKeys any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetItem", reflect.TypeOf((*MockAPI)(nil).GetItem), ctx, table, key, batch, keys)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetItem", reflect.TypeOf((*MockAPI)(nil).GetItem), ctx, table, singleKey, batch, batchKeys)
 }
 
 // GetItemAs mocks base method.
-func (m *MockAPI) GetItemAs(ctx context.Context, table string, key map[string]types.AttributeValue, batch bool, keys []map[string]types.AttributeValue, out any) error {
+func (m *MockAPI) GetItemAs(ctx context.Context, table string, singleKey map[string]types.AttributeValue, batch bool, batchKeys []map[string]types.AttributeValue, out any) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetItemAs", ctx, table, key, batch, keys, out)
+	ret := m.ctrl.Call(m, "GetItemAs", ctx, table, singleKey, batch, batchKeys, out)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // GetItemAs indicates an expected call of GetItemAs.
-func (mr *MockAPIMockRecorder) GetItemAs(ctx, table, key, batch, keys, out any) *gomock.Call {
+func (mr *MockAPIMockRecorder) GetItemAs(ctx, table, singleKey, batch, batchKeys, out any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetItemAs", reflect.TypeOf((*MockAPI)(nil).GetItemAs), ctx, table, key, batch, keys, out)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetItemAs", reflect.TypeOf((*MockAPI)(nil).GetItemAs), ctx, table, singleKey, batch, batchKeys, out)
 }
 
 // Query mocks base method.
@@ -144,18 +144,23 @@ func (mr *MockAPIMockRecorder) Query(ctx, input any) *gomock.Call {
 }
 
 // QueryAll mocks base method.
-func (m *MockAPI) QueryAll(ctx context.Context, input dynamodb.QueryInput) ([]map[string]types.AttributeValue, error) {
+func (m *MockAPI) QueryAll(ctx context.Context, input dynamodb.QueryInput, maxItems ...int) ([]map[string]types.AttributeValue, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "QueryAll", ctx, input)
+	varargs := []any{ctx, input}
+	for _, a := range maxItems {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "QueryAll", varargs...)
 	ret0, _ := ret[0].([]map[string]types.AttributeValue)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // QueryAll indicates an expected call of QueryAll.
-func (mr *MockAPIMockRecorder) QueryAll(ctx, input any) *gomock.Call {
+func (mr *MockAPIMockRecorder) QueryAll(ctx, input any, maxItems ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryAll", reflect.TypeOf((*MockAPI)(nil).QueryAll), ctx, input)
+	varargs := append([]any{ctx, input}, maxItems...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryAll", reflect.TypeOf((*MockAPI)(nil).QueryAll), varargs...)
 }
 
 // QueryAllAs mocks base method.
@@ -187,6 +192,20 @@ func (mr *MockAPIMockRecorder) QueryAs(ctx, input, out any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryAs", reflect.TypeOf((*MockAPI)(nil).QueryAs), ctx, input, out)
 }
 
+// QueryIterate mocks base method.
+func (m *MockAPI) QueryIterate(ctx context.Context, input dynamodb.QueryInput) *dynamodb.QueryIterator {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "QueryIterate", ctx, input)
+	ret0, _ := ret[0].(*dynamodb.QueryIterator)
+	return ret0
+}
+
+// QueryIterate indicates an expected call of QueryIterate.
+func (mr *MockAPIMockRecorder) QueryIterate(ctx, input any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryIterate", reflect.TypeOf((*MockAPI)(nil).QueryIterate), ctx, input)
+}
+
 // Scan mocks base method.
 func (m *MockAPI) Scan(ctx context.Context, input dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
 	m.ctrl.T.Helper()
@@ -203,18 +222,23 @@ func (mr *MockAPIMockRecorder) Scan(ctx, input any) *gomock.Call {
 }
 
 // ScanAll mocks base method.
-func (m *MockAPI) ScanAll(ctx context.Context, input dynamodb.ScanInput) ([]map[string]types.AttributeValue, error) {
+func (m *MockAPI) ScanAll(ctx context.Context, input dynamodb.ScanInput, maxItems ...int) ([]map[string]types.AttributeValue, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ScanAll", ctx, input)
+	varargs := []any{ctx, input}
+	for _, a := range maxItems {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ScanAll", varargs...)
 	ret0, _ := ret[0].([]map[string]types.AttributeValue)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ScanAll indicates an expected call of ScanAll.
-func (mr *MockAPIMockRecorder) ScanAll(ctx, input any) *gomock.Call {
+func (mr *MockAPIMockRecorder) ScanAll(ctx, input any, maxItems ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScanAll", reflect.TypeOf((*MockAPI)(nil).ScanAll), ctx, input)
+	varargs := append([]any{ctx, input}, maxItems...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScanAll", reflect.TypeOf((*MockAPI)(nil).ScanAll), varargs...)
 }
 
 // ScanAllAs mocks base method.
@@ -244,6 +268,20 @@ func (m *MockAPI) ScanAs(ctx context.Context, input dynamodb.ScanInput, out any)
 func (mr *MockAPIMockRecorder) ScanAs(ctx, input, out any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScanAs", reflect.TypeOf((*MockAPI)(nil).ScanAs), ctx, input, out)
+}
+
+// ScanIterate mocks base method.
+func (m *MockAPI) ScanIterate(ctx context.Context, input dynamodb.ScanInput) *dynamodb.ScanIterator {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ScanIterate", ctx, input)
+	ret0, _ := ret[0].(*dynamodb.ScanIterator)
+	return ret0
+}
+
+// ScanIterate indicates an expected call of ScanIterate.
+func (mr *MockAPIMockRecorder) ScanIterate(ctx, input any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScanIterate", reflect.TypeOf((*MockAPI)(nil).ScanIterate), ctx, input)
 }
 
 // TransactWrite mocks base method.
@@ -290,29 +328,29 @@ func (mr *MockAPIMockRecorder) UpdateItemAs(ctx, table, key, expr, exprVals, exp
 }
 
 // WriteItem mocks base method.
-func (m *MockAPI) WriteItem(ctx context.Context, table string, item map[string]types.AttributeValue, batch bool, items []map[string]types.AttributeValue, cond *string) error {
+func (m *MockAPI) WriteItem(ctx context.Context, table string, singleItem map[string]types.AttributeValue, batch bool, batchItems []map[string]types.AttributeValue, cond *string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WriteItem", ctx, table, item, batch, items, cond)
+	ret := m.ctrl.Call(m, "WriteItem", ctx, table, singleItem, batch, batchItems, cond)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // WriteItem indicates an expected call of WriteItem.
-func (mr *MockAPIMockRecorder) WriteItem(ctx, table, item, batch, items, cond any) *gomock.Call {
+func (mr *MockAPIMockRecorder) WriteItem(ctx, table, singleItem, batch, batchItems, cond any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteItem", reflect.TypeOf((*MockAPI)(nil).WriteItem), ctx, table, item, batch, items, cond)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteItem", reflect.TypeOf((*MockAPI)(nil).WriteItem), ctx, table, singleItem, batch, batchItems, cond)
 }
 
 // WriteItemFrom mocks base method.
-func (m *MockAPI) WriteItemFrom(ctx context.Context, table string, item any, batch bool, items any, cond *string) error {
+func (m *MockAPI) WriteItemFrom(ctx context.Context, table string, singleItem any, batch bool, batchItems any, cond *string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WriteItemFrom", ctx, table, item, batch, items, cond)
+	ret := m.ctrl.Call(m, "WriteItemFrom", ctx, table, singleItem, batch, batchItems, cond)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // WriteItemFrom indicates an expected call of WriteItemFrom.
-func (mr *MockAPIMockRecorder) WriteItemFrom(ctx, table, item, batch, items, cond any) *gomock.Call {
+func (mr *MockAPIMockRecorder) WriteItemFrom(ctx, table, singleItem, batch, batchItems, cond any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteItemFrom", reflect.TypeOf((*MockAPI)(nil).WriteItemFrom), ctx, table, item, batch, items, cond)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteItemFrom", reflect.TypeOf((*MockAPI)(nil).WriteItemFrom), ctx, table, singleItem, batch, batchItems, cond)
 }

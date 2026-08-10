@@ -10,6 +10,7 @@ import (
 
 	"komodo-accounts-api/internal/api"
 	"komodo-accounts-api/internal/db"
+	"komodo-accounts-api/internal/server"
 
 	"github.com/rdevitto86/komodo-forge-sdk-go/api/idempotency"
 	sdkserver "github.com/rdevitto86/komodo-forge-sdk-go/api/server"
@@ -51,10 +52,6 @@ func main() {
 		logger.Attr("ttl_sec", svr.idempotencyTTLSec),
 	)
 
-	restoreWindow := defaultRestoreWindow
-	if v, err := time.ParseDuration(os.Getenv("SOFT_DELETE_WINDOW")); err == nil && v > 0 {
-		restoreWindow = v
-	}
 	presignExpiry := defaultPresignExpiry
 	if v, err := time.ParseDuration(os.Getenv("S3_PRESIGN_TTL")); err == nil && v > 0 {
 		presignExpiry = v
@@ -74,7 +71,7 @@ func main() {
 
 	// init global service
 	svc := api.NewService(
-		db.New(svr.ddb, ddbTable, db.WithRestoreWindow(restoreWindow)),
+		db.New(svr.ddb, ddbTable),
 		api.ServiceExtraConfig{
 			S3Client:       svr.s3Client,
 			ExportBucket:   exportBucket,
@@ -84,7 +81,9 @@ func main() {
 			UnsubTokenTTL:  unsubTokenTTL,
 			CacheTTL:       cacheTTL,
 			CacheMaxSize:   cacheMaxSize,
-		})
+			EventPublisher: svr.eventPublisher,
+		},
+	)
 
 	readTimeout := defaultReadTimeout
 	if v, err := time.ParseDuration(os.Getenv("SERVER_READ_TIMEOUT")); err == nil && v > 0 {
@@ -113,7 +112,7 @@ func main() {
 			Label: "public",
 			Addr:  publicAddr,
 			Server: &http.Server{
-				Handler:           newPublicMux(svc, svr.ddb, svr.verify.user, ddbTable, svr.generalLimiter),
+				Handler:           server.NewPublicMux(svc, svr.ddb, svr.verify.user, ddbTable, svr.generalLimiter),
 				ReadTimeout:       readTimeout,
 				WriteTimeout:      writeTimeout,
 				IdleTimeout:       idleTimeout,
@@ -125,7 +124,7 @@ func main() {
 			Label: "private",
 			Addr:  privateAddr,
 			Server: &http.Server{
-				Handler:           newPrivateMux(svc, svr.ddb, svr.verify.service, ddbTable),
+				Handler:           server.NewPrivateMux(svc, svr.ddb, svr.verify.service, ddbTable),
 				ReadTimeout:       readTimeout,
 				WriteTimeout:      writeTimeout,
 				IdleTimeout:       idleTimeout,

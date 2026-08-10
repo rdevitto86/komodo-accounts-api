@@ -3,30 +3,19 @@ version: "2"
 linters:
   default: none
   enable:
-    # Correctness
-    - errcheck       # unchecked errors
-    - govet          # vet checks (shadow, printf, etc.)
-    - ineffassign    # useless assignments
-    - staticcheck    # advanced static analysis (subsumes gosimple in v2)
-    - unused         # unused code
-
-    # Style / best practices
-    - revive         # opinionated style rules (replaces golint)
-    - misspell       # typos in comments/strings
-
-    # Security
-    - gosec          # common security issues
-
-    # Complexity / maintainability
-    - cyclop         # cyclomatic complexity
-    - gocognit       # cognitive complexity
-
-    # Error handling
-    - wrapcheck      # errors from external pkgs should be wrapped
-    - errorlint      # correct error wrapping/comparison
-
-    # Context
-    - contextcheck   # context passed correctly through call chains
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - revive
+    - misspell
+    - gosec
+    - cyclop
+    - gocognit
+    - wrapcheck
+    - errorlint
+    - contextcheck
 
   settings:
     cyclop:
@@ -37,8 +26,7 @@ linters:
 
     gosec:
       excludes:
-        - G101   # env-key constant names, not embedded credentials
-        - G115   # integer overflow — not applicable here
+        - G115
 
     revive:
       rules:
@@ -51,7 +39,7 @@ linters:
 
     wrapcheck:
       ignore-package-globs:
-        - github.com/rdevitto86/komodo-forge-sdk-go/*   # internal SDK, wrapping optional
+        - github.com/rdevitto86/komodo-forge-sdk-go/*
 
     errorlint:
       errorf: true
@@ -59,27 +47,24 @@ linters:
 
   exclusions:
     rules:
-      # Test files: relax wrapcheck and gosec
       - path: "_test\\.go"
         linters:
           - wrapcheck
           - gosec
           - errcheck
 
-      # main.go: os.Exit after logger.Fatal is intentional; secret env passthrough
       - path: "main\\.go"
         linters:
           - contextcheck
-          - errcheck
-      - path: "main\\.go"
-        linters:
-          - gosec
-        text: "G104"
+
+      - linters:
+          - contextcheck
+        text: "->emit` should pass the context parameter"
 
 formatters:
   enable:
-    - gofmt        # formatting
-    - goimports    # import ordering
+    - gofmt
+    - goimports
 
 issues:
   max-issues-per-linter: 0

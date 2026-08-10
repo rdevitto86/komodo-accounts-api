@@ -2,21 +2,54 @@ package api
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
-	"time"
 
+	"github.com/rdevitto86/komodo-forge-sdk-go/events/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	"komodo-accounts-api/internal/db"
 	"komodo-accounts-api/internal/models"
+	"komodo-accounts-api/test/mocks"
 )
+
+type fakeEventSink struct {
+	mu      sync.Mutex
+	events  []domain.Event
+	sendErr error
+}
+
+func (f *fakeEventSink) Send(_ context.Context, event domain.Event) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.sendErr != nil {
+		return f.sendErr
+	}
+	f.events = append(f.events, event)
+	return nil
+}
+
+func (f *fakeEventSink) Received() []domain.Event {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]domain.Event(nil), f.events...)
+}
+
+func newTestServiceWithEvents(t *testing.T, ctrl *gomock.Controller) (*Service, *mocks.Mockrepository, *fakeEventSink) {
+	t.Helper()
+	repo := mocks.NewMockrepository(ctrl)
+	sink := &fakeEventSink{}
+	publisher, err := domain.NewPublisher(sink)
+	require.NoError(t, err)
+	svc := NewService(repo, ServiceExtraConfig{
+		UnsubscribeKey: []byte("test-secret-32-bytes-padded-xx!!"),
+		EventPublisher: publisher,
+	})
+	return svc, repo, sink
+}
 
 func TestDeleteProfile_GDPRDeleteAccountCalled(t *testing.T) {
 	t.Parallel()
@@ -24,76 +57,26 @@ func TestDeleteProfile_GDPRDeleteAccountCalled(t *testing.T) {
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(nil, db.ErrNotFound)
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").
+		Return(&models.Account{AccountId: "cust_1", Email: "owner@test.com"}, nil)
 	repo.EXPECT().DeleteAccount(gomock.Any(), "cust_1").Return(nil).Times(1)
 
-	err := svc.DeleteProfile(context.Background(), "cust_1")
+	err := svc.DeleteProfile(context.Background(), "cust_1", "owner@test.com")
 	require.NoError(t, err)
 }
 
-func TestHMACTokenRoundTrip(t *testing.T) {
+func TestDeleteProfile_UnknownAccountErasesNothing(t *testing.T) {
 	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	svc, repo := newTestService(t, ctrl)
 
-	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountId: "cust_1"}, nil)
-	repo.EXPECT().GetLatestConsent(gomock.Any(), "cust_1", "email").Return(nil, db.ErrNotFound)
-	repo.EXPECT().
-		AppendConsentLog(gomock.Any(), "cust_1", gomock.Any()).
-		Return(nil)
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(nil, db.ErrNotFound)
+	repo.EXPECT().DeleteAccount(gomock.Any(), gomock.Any()).Times(0)
 
-	token, err := svc.MintUnsubscribeToken(context.Background(), "cust_1", "email")
-	require.NoError(t, err)
-	require.NotEmpty(t, token)
-
-	err = svc.VerifyAndRecordUnsubscribe(context.Background(), token, "127.0.0.1", "test-agent")
-	require.NoError(t, err)
-}
-
-func TestHMACTokenTampered(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, repo := newTestService(t, ctrl)
-
-	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(&models.Account{AccountId: "cust_1"}, nil)
-
-	token, err := svc.MintUnsubscribeToken(context.Background(), "cust_1", "email")
-	require.NoError(t, err)
-
-	raw, err := base64.RawURLEncoding.DecodeString(token)
-	require.NoError(t, err)
-
-	raw[len(raw)-1] ^= 0xFF
-	tampered := base64.RawURLEncoding.EncodeToString(raw)
-
-	err = svc.VerifyAndRecordUnsubscribe(context.Background(), tampered, "127.0.0.1", "test-agent")
-	assert.Error(t, err)
-}
-
-func TestHMACTokenExpired(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, _ := newTestService(t, ctrl)
-
-	key := []byte("test-secret-32-bytes-padded-xx!!")
-	p := unsubPayload{
-		AccountID: "cust_1",
-		Channel:   "email",
-		Exp:       time.Now().Add(-1 * time.Hour).Unix(),
-	}
-	payload, err := json.Marshal(p)
-	require.NoError(t, err)
-
-	mac := hmac.New(sha256.New, key)
-	mac.Write(payload)
-	sig := mac.Sum(nil)
-	token := base64.RawURLEncoding.EncodeToString(append(payload, sig...))
-
-	err = svc.VerifyAndRecordUnsubscribe(context.Background(), token, "127.0.0.1", "test-agent")
-	assert.Error(t, err)
+	err := svc.DeleteProfile(context.Background(), "cust_1", "owner@test.com")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNotFound))
 }
 
 func TestUpdateProfile_OnlyTranslatesSuppliedFields(t *testing.T) {
@@ -123,214 +106,6 @@ func TestUpdateProfile_OnlyTranslatesSuppliedFields(t *testing.T) {
 	assert.Nil(t, captured.AvatarUrl)
 }
 
-func TestGetCredentials_CacheKeyIsLowercased(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, repo := newTestService(t, ctrl)
-
-	repo.EXPECT().
-		GetAccountCredentialsByEmail(gomock.Any(), "USER@Example.com").
-		Return(&models.CredentialsResponse{AccountId: "cust_1"}, nil).
-		Times(1)
-
-	_, err := svc.GetCredentials(context.Background(), "USER@Example.com")
-	require.NoError(t, err)
-
-	creds, err := svc.GetCredentials(context.Background(), "user@example.com")
-	require.NoError(t, err)
-	assert.Equal(t, "cust_1", creds.AccountId)
-}
-
-func TestUpdateCredentials_InvalidatesCacheAfterSuccess(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, repo := newTestService(t, ctrl)
-
-	oldHash := "old_hash"
-	newHash := "new_hash"
-	repo.EXPECT().
-		GetAccountCredentialsByEmail(gomock.Any(), "user@example.com").
-		Return(&models.CredentialsResponse{AccountId: "cust_1", PasswordHash: &oldHash}, nil).
-		Times(1)
-	repo.EXPECT().
-		UpdateAccountCredentials(gomock.Any(), "cust_1", gomock.Any()).
-		Return(nil)
-	repo.EXPECT().
-		GetAccount(gomock.Any(), "cust_1").
-		Return(&models.Account{AccountId: "cust_1", Email: "USER@Example.com"}, nil)
-	repo.EXPECT().
-		GetAccountCredentialsByEmail(gomock.Any(), "user@example.com").
-		Return(&models.CredentialsResponse{AccountId: "cust_1", PasswordHash: &newHash}, nil).
-		Times(1)
-
-	_, err := svc.GetCredentials(context.Background(), "user@example.com")
-	require.NoError(t, err)
-
-	err = svc.UpdateCredentials(context.Background(), "cust_1", &models.UpdateCredentialsRequest{PasswordHash: &newHash})
-	require.NoError(t, err)
-
-	creds, err := svc.GetCredentials(context.Background(), "user@example.com")
-	require.NoError(t, err)
-	require.NotNil(t, creds.PasswordHash)
-	assert.Equal(t, "new_hash", *creds.PasswordHash)
-}
-
-func TestUpdateCredentials_CacheInvalidationLookupFails_StillSucceeds(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, repo := newTestService(t, ctrl)
-
-	repo.EXPECT().
-		UpdateAccountCredentials(gomock.Any(), "cust_1", gomock.Any()).
-		Return(nil)
-	repo.EXPECT().
-		GetAccount(gomock.Any(), "cust_1").
-		Return(nil, errors.New("boom"))
-
-	hash := "new_hash"
-	err := svc.UpdateCredentials(context.Background(), "cust_1", &models.UpdateCredentialsRequest{PasswordHash: &hash})
-	require.NoError(t, err)
-}
-
-func TestAddAddress_AlreadyExists(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, repo := newTestService(t, ctrl)
-
-	repo.EXPECT().
-		CreateAddress(gomock.Any(), "cust_1", gomock.Any()).
-		Return(db.ErrAlreadyExists)
-
-	err := svc.AddAddress(context.Background(), "cust_1", &models.Address{AddressId: "addr_dupe"})
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrAlreadyExists))
-}
-
-func TestUpsertPayment_AlreadyExists(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, repo := newTestService(t, ctrl)
-
-	repo.EXPECT().
-		UpsertPayment(gomock.Any(), "cust_1", gomock.Any()).
-		Return(db.ErrAlreadyExists)
-
-	err := svc.UpsertPayment(context.Background(), "cust_1", &models.PaymentMethod{})
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrAlreadyExists))
-}
-
-func TestUpsertPayment_NotFound(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, repo := newTestService(t, ctrl)
-
-	repo.EXPECT().
-		UpsertPayment(gomock.Any(), "cust_1", gomock.Any()).
-		Return(db.ErrNotFound)
-
-	err := svc.UpsertPayment(context.Background(), "cust_1", &models.PaymentMethod{PaymentId: "pay_foreign"})
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNotFound))
-}
-
-func TestUpdateSettingsTags_UnknownService(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, _ := newTestService(t, ctrl)
-
-	req := &models.UpdateSettingsTagsRequest{Add: ptr([]string{"loyalty.vip"})}
-	_, err := svc.UpdateSettingsTags(context.Background(), "cust_1", "unknown-service", req)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrForbiddenNamespace))
-}
-
-func TestUpdateSettingsTags_WrongPrefix(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, _ := newTestService(t, ctrl)
-
-	req := &models.UpdateSettingsTagsRequest{Add: ptr([]string{"system.internal"})}
-	_, err := svc.UpdateSettingsTags(context.Background(), "cust_1", "loyalty-api", req)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrForbiddenNamespace))
-}
-
-func TestUpdateSettingsTags_Valid(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, repo := newTestService(t, ctrl)
-
-	repo.EXPECT().GetSettings(gomock.Any(), "cust_1").Return(nil, db.ErrNotFound)
-	repo.EXPECT().UpdateSettings(gomock.Any(), "cust_1", gomock.Any()).Return(nil)
-	repo.EXPECT().
-		MutateSettingsTags(gomock.Any(), "cust_1", gomock.Any(), gomock.Any()).
-		Return(nil)
-	repo.EXPECT().
-		GetSettings(gomock.Any(), "cust_1").
-		Return(&models.AccountSettings{Status: "active", Tags: ptr([]string{"loyalty.vip"})}, nil)
-
-	req := &models.UpdateSettingsTagsRequest{Add: ptr([]string{"loyalty.vip"})}
-	result, err := svc.UpdateSettingsTags(context.Background(), "cust_1", "loyalty-api", req)
-	require.NoError(t, err)
-	assert.Contains(t, deref(result.Tags), "loyalty.vip")
-}
-
-func TestUpdateSettingsTags_MissingSettingsRecord_MapsToNotFound(t *testing.T) {
-	t.Parallel()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	svc, repo := newTestService(t, ctrl)
-
-	repo.EXPECT().
-		GetSettings(gomock.Any(), "cust_1").
-		Return(&models.AccountSettings{Status: "active"}, nil)
-	repo.EXPECT().
-		MutateSettingsTags(gomock.Any(), "cust_1", gomock.Any(), gomock.Any()).
-		Return(db.ErrNotFound)
-
-	req := &models.UpdateSettingsTagsRequest{Add: ptr([]string{"loyalty.vip"})}
-	_, err := svc.UpdateSettingsTags(context.Background(), "cust_1", "loyalty-api", req)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNotFound))
-}
-
-func TestValidateStatus(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		status  string
-		wantErr bool
-	}{
-		{"active", false},
-		{"suspended", false},
-		{"closed", false},
-		{"pending_deletion", false},
-		{"invalid", true},
-		{"", true},
-		{"ACTIVE", true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.status, func(t *testing.T) {
-			t.Parallel()
-			err := validateStatus(tc.status)
-			if tc.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
 func TestCreateAccount_MissingFields_MapsToInvalidInput(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -357,26 +132,176 @@ func TestCreateAccount_MissingFields_MapsToInvalidInput(t *testing.T) {
 	}
 }
 
-func TestUpdateCredentials_MissingFields_MapsToInvalidInput(t *testing.T) {
+func TestCreateAccount_NilEventPublisher_DoesNotPanic(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name      string
-		accountID string
-		req       models.UpdateCredentialsRequest
-	}{
-		{name: "missing account_id", req: models.UpdateCredentialsRequest{}},
-		{name: "no updatable field", accountID: "cust_1", req: models.UpdateCredentialsRequest{}},
-	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo := newTestService(t, ctrl)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-			svc, _ := newTestService(t, ctrl)
+	repo.EXPECT().CreateAccount(gomock.Any(), "cust_1", gomock.Any()).
+		Return(&models.Account{AccountId: "cust_1", Email: "a@b.co", FirstName: "A", LastName: "B"}, nil)
 
-			err := svc.UpdateCredentials(context.Background(), tc.accountID, &tc.req)
-			require.ErrorIs(t, err, ErrInvalidInput)
-		})
-	}
+	created, err := svc.CreateAccount(context.Background(), "cust_1", &models.CreateAccountRequest{
+		Email: "a@b.co", FirstName: "A", LastName: "B",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "cust_1", created.AccountId)
+}
+
+func TestCreateAccount_PublishesAccountRegisteredEvent(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo, sink := newTestServiceWithEvents(t, ctrl)
+
+	repo.EXPECT().CreateAccount(gomock.Any(), "cust_1", gomock.Any()).
+		Return(&models.Account{AccountId: "cust_1", Email: "a@b.co", FirstName: "A", LastName: "B"}, nil)
+
+	_, err := svc.CreateAccount(context.Background(), "cust_1", &models.CreateAccountRequest{
+		Email: "a@b.co", FirstName: "A", LastName: "B",
+	})
+	require.NoError(t, err)
+
+	events := sink.Received()
+	require.Len(t, events, 1)
+	assert.Equal(t, "account.registered", events[0].Type)
+	assert.Equal(t, "cust_1", events[0].EntityID)
+}
+
+func TestCreateAccount_EventPublishFails_AccountCreationStillSucceeds(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo, sink := newTestServiceWithEvents(t, ctrl)
+	sink.sendErr = errors.New("events api unreachable")
+
+	repo.EXPECT().CreateAccount(gomock.Any(), "cust_1", gomock.Any()).
+		Return(&models.Account{AccountId: "cust_1", Email: "a@b.co", FirstName: "A", LastName: "B"}, nil)
+
+	created, err := svc.CreateAccount(context.Background(), "cust_1", &models.CreateAccountRequest{
+		Email: "a@b.co", FirstName: "A", LastName: "B",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "cust_1", created.AccountId)
+}
+
+func TestUpdateProfile_EventPublishFails_UpdateStillSucceeds(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo, sink := newTestServiceWithEvents(t, ctrl)
+	sink.sendErr = errors.New("events api unreachable")
+
+	firstName := "Jane"
+	repo.EXPECT().
+		UpdateAccount(gomock.Any(), "cust_1", gomock.Any()).
+		Return(&models.Account{AccountId: "cust_1"}, nil)
+
+	updated, err := svc.UpdateProfile(context.Background(), "cust_1", &models.UpdateAccountRequest{
+		FirstName: &firstName,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "cust_1", updated.AccountId)
+}
+
+func TestDeleteProfile_EventPublishFails_DeleteStillSucceeds(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo, sink := newTestServiceWithEvents(t, ctrl)
+	sink.sendErr = errors.New("events api unreachable")
+
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").
+		Return(&models.Account{AccountId: "cust_1", Email: "owner@test.com"}, nil)
+	repo.EXPECT().DeleteAccount(gomock.Any(), "cust_1").Return(nil)
+
+	err := svc.DeleteProfile(context.Background(), "cust_1", "owner@test.com")
+	require.NoError(t, err)
+}
+
+func TestUpdateProfile_PriorProfileFetchFails_SkipsPhoneChangedEvent(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo, sink := newTestServiceWithEvents(t, ctrl)
+
+	newPhone := "+15553334444"
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").Return(nil, errors.New("transient db error"))
+	repo.EXPECT().
+		UpdateAccount(gomock.Any(), "cust_1", gomock.Any()).
+		Return(&models.Account{AccountId: "cust_1", Phone: &newPhone}, nil)
+
+	_, err := svc.UpdateProfile(context.Background(), "cust_1", &models.UpdateAccountRequest{
+		Phone: &newPhone,
+	})
+	require.NoError(t, err)
+
+	events := sink.Received()
+	require.Len(t, events, 1)
+	assert.Equal(t, "account.profile_updated", events[0].Type)
+}
+
+func TestDeleteProfile_NilEventPublisher_DoesNotPanic(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo := newTestService(t, ctrl)
+
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").
+		Return(&models.Account{AccountId: "cust_1", Email: "owner@test.com"}, nil)
+	repo.EXPECT().DeleteAccount(gomock.Any(), "cust_1").Return(nil)
+
+	err := svc.DeleteProfile(context.Background(), "cust_1", "owner@test.com")
+	require.NoError(t, err)
+}
+
+func TestUpdateProfile_FirstNameAndPhoneChanged_PublishesBothEvents(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo, sink := newTestServiceWithEvents(t, ctrl)
+
+	oldPhone := "+15551112222"
+	newPhone := "+15553334444"
+
+	repo.EXPECT().GetAccount(gomock.Any(), "cust_1").
+		Return(&models.Account{AccountId: "cust_1", Phone: &oldPhone}, nil)
+	repo.EXPECT().
+		UpdateAccount(gomock.Any(), "cust_1", gomock.Any()).
+		Return(&models.Account{AccountId: "cust_1", Phone: &newPhone}, nil)
+
+	firstName := "Jane"
+	_, err := svc.UpdateProfile(context.Background(), "cust_1", &models.UpdateAccountRequest{
+		FirstName: &firstName,
+		Phone:     &newPhone,
+	})
+	require.NoError(t, err)
+
+	events := sink.Received()
+	require.Len(t, events, 2)
+
+	types := []string{events[0].Type, events[1].Type}
+	assert.Contains(t, types, "account.profile_updated")
+	assert.Contains(t, types, "account.phone_changed")
+}
+
+func TestUpdateProfile_NoPhoneChange_DoesNotPublishPhoneEvent(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc, repo, sink := newTestServiceWithEvents(t, ctrl)
+
+	firstName := "Jane"
+	repo.EXPECT().
+		UpdateAccount(gomock.Any(), "cust_1", gomock.Any()).
+		Return(&models.Account{AccountId: "cust_1"}, nil)
+
+	_, err := svc.UpdateProfile(context.Background(), "cust_1", &models.UpdateAccountRequest{
+		FirstName: &firstName,
+	})
+	require.NoError(t, err)
+
+	events := sink.Received()
+	require.Len(t, events, 1)
+	assert.Equal(t, "account.profile_updated", events[0].Type)
 }

@@ -112,20 +112,6 @@ func (mr *MockrepositoryMockRecorder) DeleteAccount(ctx, accountID any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccount", reflect.TypeOf((*Mockrepository)(nil).DeleteAccount), ctx, accountID)
 }
 
-// DeleteAccountPreferences mocks base method.
-func (m *Mockrepository) DeleteAccountPreferences(ctx context.Context, accountID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteAccountPreferences", ctx, accountID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteAccountPreferences indicates an expected call of DeleteAccountPreferences.
-func (mr *MockrepositoryMockRecorder) DeleteAccountPreferences(ctx, accountID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccountPreferences", reflect.TypeOf((*Mockrepository)(nil).DeleteAccountPreferences), ctx, accountID)
-}
-
 // DeleteAddress mocks base method.
 func (m *Mockrepository) DeleteAddress(ctx context.Context, accountID, addressID string) error {
 	m.ctrl.T.Helper()
@@ -332,20 +318,6 @@ func (mr *MockrepositoryMockRecorder) MutateSettingsTags(ctx, accountID, req, ve
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MutateSettingsTags", reflect.TypeOf((*Mockrepository)(nil).MutateSettingsTags), ctx, accountID, req, version)
 }
 
-// RestoreAccount mocks base method.
-func (m *Mockrepository) RestoreAccount(ctx context.Context, accountID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RestoreAccount", ctx, accountID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// RestoreAccount indicates an expected call of RestoreAccount.
-func (mr *MockrepositoryMockRecorder) RestoreAccount(ctx, accountID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestoreAccount", reflect.TypeOf((*Mockrepository)(nil).RestoreAccount), ctx, accountID)
-}
-
 // SetAddressDefault mocks base method.
 func (m *Mockrepository) SetAddressDefault(ctx context.Context, accountID, addressID string) error {
 	m.ctrl.T.Helper()
@@ -372,20 +344,6 @@ func (m *Mockrepository) SetPaymentDefault(ctx context.Context, accountID, payme
 func (mr *MockrepositoryMockRecorder) SetPaymentDefault(ctx, accountID, paymentID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPaymentDefault", reflect.TypeOf((*Mockrepository)(nil).SetPaymentDefault), ctx, accountID, paymentID)
-}
-
-// SoftDeleteAccount mocks base method.
-func (m *Mockrepository) SoftDeleteAccount(ctx context.Context, accountID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SoftDeleteAccount", ctx, accountID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SoftDeleteAccount indicates an expected call of SoftDeleteAccount.
-func (mr *MockrepositoryMockRecorder) SoftDeleteAccount(ctx, accountID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDeleteAccount", reflect.TypeOf((*Mockrepository)(nil).SoftDeleteAccount), ctx, accountID)
 }
 
 // UpdateAccount mocks base method.

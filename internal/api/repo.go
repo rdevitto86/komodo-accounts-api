@@ -1,4 +1,3 @@
-//go:generate go run go.uber.org/mock/mockgen -source=repo.go -destination=../../test/mocks/mock_repo.go -package=mocks
 package api
 
 import (
@@ -12,8 +11,6 @@ type repository interface {
 	CreateAccount(ctx context.Context, accountID string, req *models.CreateAccountRequest) (*models.Account, error)
 	UpdateAccount(ctx context.Context, accountID string, update *models.UpdateAccountRequest) (*models.Account, error)
 	DeleteAccount(ctx context.Context, accountID string) error
-	SoftDeleteAccount(ctx context.Context, accountID string) error
-	RestoreAccount(ctx context.Context, accountID string) error
 
 	GetAccountAddresses(ctx context.Context, accountID string) ([]models.Address, error)
 	CreateAddress(ctx context.Context, accountID string, addr *models.Address) error
@@ -28,7 +25,6 @@ type repository interface {
 
 	GetAccountPreferences(ctx context.Context, accountID string) (*models.Preferences, error)
 	UpdateAccountPreferences(ctx context.Context, accountID string, req *models.Preferences) error
-	DeleteAccountPreferences(ctx context.Context, accountID string) error
 
 	GetAccountCredentialsByEmail(ctx context.Context, email string) (*models.CredentialsResponse, error)
 	UpdateAccountCredentials(ctx context.Context, accountID string, req *models.UpdateCredentialsRequest) error

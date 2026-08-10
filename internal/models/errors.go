@@ -24,7 +24,6 @@ type AccountAPIErrors struct {
 	InvalidUnsubscribeToken     httpErr.ErrorCode
 	InvalidUnsubscribeChannel   httpErr.ErrorCode
 	InvalidInput                httpErr.ErrorCode
-	AccountNotPendingDeletion   httpErr.ErrorCode
 	InvalidCommunicationChannel httpErr.ErrorCode
 	VersionConflict             httpErr.ErrorCode
 	EmailAlreadyExists          httpErr.ErrorCode
@@ -48,7 +47,6 @@ var Err = AccountAPIErrors{
 	InvalidUnsubscribeToken:     httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 16), Status: http.StatusBadRequest, Message: "Invalid or expired unsubscribe token"},
 	InvalidUnsubscribeChannel:   httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 17), Status: http.StatusBadRequest, Message: "Invalid unsubscribe channel"},
 	InvalidInput:                httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 18), Status: http.StatusBadRequest, Message: "Invalid input"},
-	AccountNotPendingDeletion:   httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 19), Status: http.StatusConflict, Message: "Account is not pending deletion or the restore window has expired"},
 	InvalidCommunicationChannel: httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 20), Status: http.StatusBadRequest, Message: "invalid communication channel"},
 	VersionConflict:             httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 21), Status: http.StatusConflict, Message: "version conflict"},
 	EmailAlreadyExists:          httpErr.ErrorCode{ID: httpErr.CodeID(httpErr.RangeUser, 22), Status: http.StatusConflict, Message: "Email already registered"},

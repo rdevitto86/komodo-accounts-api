@@ -18,6 +18,8 @@ import {
   buildAccountService,
   buildWaf,
   buildAccountAlarms,
+  buildAlarmNotifications,
+  ALARM_EMAIL,
   buildAccountsTable,
   buildAvatarsBucket,
   createInfra,
@@ -36,6 +38,25 @@ function makeCtx(stack: cdk.Stack, cfg: AccountEnvConfig): ServiceBuildContext {
     logGroup: new logs.LogGroup(stack, 'LogGroup'),
     cfg,
   };
+}
+
+interface PolicyStatement {
+  Effect?: string;
+  Action?: string | string[];
+  Resource?: unknown;
+}
+
+function deleteObjectStatements(template: Template, bucketLogicalIdPrefix: string): PolicyStatement[] {
+  const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+    .flatMap((policy): PolicyStatement[] => policy.Properties?.PolicyDocument?.Statement ?? []);
+
+  return statements.filter((statement) => {
+    if (statement.Effect !== 'Allow') return false;
+    const actions = ([] as string[]).concat(statement.Action ?? []);
+    if (!actions.some((action) => action === 's3:DeleteObject' || action === 's3:DeleteObject*')) return false;
+    const resources = ([] as unknown[]).concat(statement.Resource ?? []);
+    return resources.some((resource) => JSON.stringify(resource).includes(bucketLogicalIdPrefix));
+  });
 }
 
 describe('configs', () => {
@@ -170,7 +191,7 @@ describe('WAF and Alarms', () => {
   });
 
   describe('buildWaf', () => {
-    it('creates WebACL with managed rules, rate limits, and internal block', () => {
+    it('creates WebACL with managed rules and per-path rate limits', () => {
       buildWaf(stack, svc.alb);
       const template = Template.fromStack(stack);
 
@@ -181,7 +202,6 @@ describe('WAF and Alarms', () => {
           Match.objectLike({ Name: 'AWSManagedRulesKnownBadInputsRuleSet' }),
           Match.objectLike({ Name: 'ProfileRateLimit' }),
           Match.objectLike({ Name: 'AddressRateLimit' }),
-          Match.objectLike({ Name: 'BlockInternalPaths' }),
         ]),
       });
       template.resourceCountIs('AWS::WAFv2::WebACLAssociation', 1);
@@ -195,6 +215,44 @@ describe('WAF and Alarms', () => {
 
       template.resourceCountIs('AWS::Logs::MetricFilter', 2);
       template.resourceCountIs('AWS::CloudWatch::Alarm', 7);
+    });
+
+    it('dimensions the latency alarm on the load balancer full name, not the ARN', () => {
+      buildAccountAlarms(stack, ctx.logGroup, svc.alb);
+      const template = Template.fromStack(stack);
+      const fullName = stack.resolve(svc.alb.loadBalancerFullName);
+
+      expect(fullName).toEqual({ 'Fn::GetAtt': [expect.any(String), 'LoadBalancerFullName'] });
+      template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+        MetricName: 'TargetResponseTime',
+        Dimensions: [{ Name: 'LoadBalancer', Value: fullName }],
+      });
+    });
+  });
+
+  describe('buildAlarmNotifications', () => {
+    it('creates an SNS topic with an email subscription', () => {
+      buildAlarmNotifications(stack, STG_CONFIG);
+      const template = Template.fromStack(stack);
+
+      template.resourceCountIs('AWS::SNS::Topic', 1);
+      template.hasResourceProperties('AWS::SNS::Subscription', {
+        Protocol: 'email',
+        Endpoint: ALARM_EMAIL,
+      });
+    });
+
+    it('attaches the topic to every alarm in the stack, leaving none silent', () => {
+      buildAccountAlarms(stack, ctx.logGroup, svc.alb);
+      const topic = buildAlarmNotifications(stack, STG_CONFIG);
+      const template = Template.fromStack(stack);
+      const alarms = template.findResources('AWS::CloudWatch::Alarm');
+      const expected = [stack.resolve(topic.topicArn)];
+
+      expect(Object.keys(alarms)).toHaveLength(7);
+      for (const [logicalId, alarm] of Object.entries(alarms)) {
+        expect(alarm.Properties?.AlarmActions, `${logicalId} has no alarm action`).toEqual(expected);
+      }
     });
   });
 });
@@ -268,6 +326,20 @@ describe('buildAvatarsBucket', () => {
     });
   });
 
+  it('grants the task role object delete, scoped to avatar objects only', () => {
+    const [stack] = makeStack();
+    const role = new iam.Role(stack, 'TestRole', { assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com') });
+    buildAvatarsBucket(stack, 'dev', role);
+    const template = Template.fromStack(stack);
+
+    const statements = deleteObjectStatements(template, 'AccountAvatars');
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.Resource).toEqual({
+      'Fn::Join': ['', [{ 'Fn::GetAtt': [expect.stringMatching(/^AccountAvatars/), 'Arn'] }, '/*']],
+    });
+  });
+
   it('sets removalPolicy to RETAIN on prod', () => {
     const [stack] = makeStack();
     const role = new iam.Role(stack, 'TestRole', { assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com') });
@@ -312,6 +384,20 @@ describe('buildStack', () => {
       template.hasOutput('AccountsTableStreamArn', {});
       template.hasOutput('AvatarsBucketName', {});
       template.hasOutput('WafWebAclArn', {});
+      template.hasOutput('AlarmTopicArn', {});
+    });
+
+    it('lets the task role delete an avatar during account closure without widening the grant', () => {
+      const avatarDeletes = deleteObjectStatements(template, 'AccountAvatars');
+      const resources = ([] as unknown[]).concat(avatarDeletes[0]?.Resource ?? []);
+      const serialised = JSON.stringify(resources);
+
+      expect(avatarDeletes).toHaveLength(1);
+      expect(resources).toEqual([
+        { 'Fn::Join': ['', [{ 'Fn::GetAtt': [expect.stringMatching(/^AccountAvatars/), 'Arn'] }, '/*']] },
+      ]);
+      expect(serialised).not.toContain('AccountExports');
+      expect(resources).not.toContain('*');
     });
 
     it('applies tags from config', () => {
@@ -341,6 +427,7 @@ describe('buildStack', () => {
     template.hasOutput('AccountsTableStreamArn', {});
     template.hasOutput('AvatarsBucketName', {});
     template.hasOutput('WafWebAclArn', {});
+    template.hasOutput('AlarmTopicArn', {});
   });
 
   it('scales with prod config', () => {

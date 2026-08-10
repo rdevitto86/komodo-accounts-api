@@ -125,6 +125,13 @@ rules:
         Authorization:
           required: true
           value: "Bearer *"
+        Content-Type:
+          required: true
+          value: "application/json"
+      body:
+        confirm_email:
+          type: "string"
+          required: true
 
   "/me/profile/export":
     POST:

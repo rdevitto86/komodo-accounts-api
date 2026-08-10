@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
@@ -9,6 +10,8 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as servicediscovery from 'aws-cdk-lib/aws-servicediscovery';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import type { IConstruct } from 'constructs';
 import { fileURLToPath } from 'node:url';
 import type { EnvConfig } from 'komodo-forge-sdk-ts/aws/cdk/config';
 import {
@@ -22,6 +25,7 @@ import {
   WafWebAcl,
   MetricFilterAlarm,
   FargateService,
+  SnsTopic,
 } from 'komodo-forge-sdk-ts/aws/cdk/constructs';
 import { globalConstants } from 'komodo-forge-sdk-ts';
 import { awsConstants } from 'komodo-forge-sdk-ts/aws';
@@ -34,12 +38,13 @@ export const VERSION = process.env.VERSION || globalConstants.DEFAULT_APP_VERSIO
 export const EVAL_RULES_PATH = process.env.EVAL_RULES_PATH || globalConstants.DEFAULT_EVAL_RULES_PATH;
 export const HEALTH_CHECK_PATH = globalConstants.DEFAULT_HEALTH_CHECK_PATH;
 export const HEALTH_CHECK_COMMAND = globalConstants.DEFAULT_HEALTH_CHECK_COMMAND;
+export const ALARM_EMAIL = process.env.ALARM_EMAIL || 'PLACEHOLDER-alarm-email@komodo.com';
 
 const {
   DYNAMODB_TABLE_PREFIX,
   DYNAMODB_TABLE_SUFFIX_STG,
   DYNAMODB_TABLE_SUFFIX_PROD,
-} = awsConstants.dynamodbConstants;
+} = awsConstants.dynamodb;
 
 export interface AccountEnvConfig extends EnvConfig {
   accountsTable: string;
@@ -205,6 +210,27 @@ export const buildWaf = (stack: cdk.Stack, alb: elbv2.ApplicationLoadBalancer): 
   return waf;
 };
 
+export class AlarmNotificationAspect implements cdk.IAspect {
+  constructor(private readonly topic: sns.ITopic) {}
+
+  visit(node: IConstruct): void {
+    if (node instanceof cloudwatch.Alarm) {
+      node.addAlarmAction(new cloudwatchActions.SnsAction(this.topic));
+    }
+  }
+}
+
+export const buildAlarmNotifications = (stack: cdk.Stack, cfg: AccountEnvConfig): sns.ITopic => {
+  const { topic } = new SnsTopic(stack, 'AlarmTopic', {
+    topicName: `${API_NAME}-${cfg.env}-alarms`,
+    displayName: `${API_NAME} ${cfg.env} alarms`,
+    subscriptions: [{ endpoint: ALARM_EMAIL, protocol: sns.SubscriptionProtocol.EMAIL }],
+  });
+
+  cdk.Aspects.of(stack).add(new AlarmNotificationAspect(topic));
+  return topic;
+};
+
 export const buildAccountAlarms = (stack: cdk.Stack, logGroup: logs.ILogGroup, alb: elbv2.ApplicationLoadBalancer) => {
   new MetricFilterAlarm(stack, 'Account5xx', {
     logGroup,
@@ -226,9 +252,9 @@ export const buildAccountAlarms = (stack: cdk.Stack, logGroup: logs.ILogGroup, a
 
   new Alarm(stack, 'LatencyP99Alarm', {
     metric: new cloudwatch.Metric({
-      metricName: awsConstants.cloudwatchConstants.METRIC_TARGET_RESPONSE_TIME,
-      namespace: awsConstants.cloudwatchConstants.CLOUDWATCH_NAMESPACE_ALB,
-      dimensionsMap: { LoadBalancer: alb.loadBalancerArn },
+      metricName: awsConstants.cloudwatch.METRIC_TARGET_RESPONSE_TIME,
+      namespace: awsConstants.cloudwatch.CLOUDWATCH_NAMESPACE_ALB,
+      dimensionsMap: { LoadBalancer: alb.loadBalancerFullName },
       statistic: 'p99',
       period: cdk.Duration.seconds(60),
     }),
@@ -296,6 +322,7 @@ export const buildAvatarsBucket = (stack: cdk.Stack, env: string, taskRole: iam.
   });
   bucket.grantPut(taskRole);
   bucket.grantRead(taskRole);
+  bucket.grantDelete(taskRole);
   return bucket;
 };
 
@@ -333,8 +360,10 @@ export const buildStack = (stack: cdk.Stack, cfg: AccountEnvConfig): void => {
 
   const waf = buildWaf(stack, svc.alb);
   buildAccountAlarms(stack, logGroup, svc.alb);
+  const alarmTopic = buildAlarmNotifications(stack, cfg);
 
   new cdk.CfnOutput(stack, 'WafWebAclArn', { value: waf.webAcl.attrArn });
+  new cdk.CfnOutput(stack, 'AlarmTopicArn', { value: alarmTopic.topicArn });
 };
 
 export const createInfra = () => {

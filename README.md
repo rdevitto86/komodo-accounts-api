@@ -5,7 +5,7 @@ preferences, address books, payment-method summaries, and consent history.
 
 It is a **data store, not an authenticator**. auth-api issues every token and verifies credentials by
 reading them over the private plane; this service stores what auth-api tells it to and serves the
-lookup on the sign-in hot path. See `docs/PRD.md` for scope and `docs/HLD.md` for design.
+lookup on the sign-in hot path. See `docs/PRD.md` for scope and `docs/sdd.md` for design.
 
 > ⚠️ **Pre-release, and currently NO-GO for staging.** Five blockers are open — most importantly, every
 > authenticated public route returns 400 today because the shared SDK's header validator has no JWT
@@ -238,9 +238,7 @@ Every public write route requires an `Idempotency-Key` header matching `^[A-Za-z
 | Document | Contents |
 |---|---|
 | `docs/PRD.md` | Product scope, capabilities, non-goals |
-| `docs/HLD.md` | System design, critical paths, security posture, infrastructure |
-| `docs/data-model.md` | Entities, PII classification, retention, business invariants |
-| `docs/domain-events.md` | Event catalogue and change-capture derivation contract |
+| `docs/sdd.md` | System design, critical paths, security posture, infrastructure, data strategy, entities, PII classification, retention, business invariants, event catalogue and change-capture derivation contract |
 | `docs/adr/001-v1-target-state.md` | V1 decisions D0–D11 |
 | `docs/adr/002-v2-target-state.md` | V2 scope: distributed idempotency, telemetry and metrics |
 | `docs/adr/003-cloud-map-namespace-ownership.md` | Why this service owns `komodo.internal` |

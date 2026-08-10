@@ -12,8 +12,8 @@ import (
 
 func TestPasskeyPKSK(t *testing.T) {
 	t.Parallel()
-	if got, want := passkeyPK("user_123"), "ACCOUNT#user_123"; got != want {
-		t.Errorf("passkeyPK() = %q, want %q", got, want)
+	if got, want := createPK("user_123"), "ACCOUNT#user_123"; got != want {
+		t.Errorf("createPK() = %q, want %q", got, want)
 	}
 	if got, want := passkeySK("cred_abc"), "PASSKEY#cred_abc"; got != want {
 		t.Errorf("passkeySK() = %q, want %q", got, want)
@@ -26,7 +26,7 @@ func TestPasskeyRecordMarshalRoundTrip(t *testing.T) {
 	transports := []string{"internal", "hybrid"}
 	aaguid := "YWFndWlk"
 
-	record := passkeyRecordFrom(passkeyPK("user_123"), passkeySK("cred_abc"), &models.PasskeyCredential{
+	record := passkeyRecordFrom(createPK("user_123"), passkeySK("cred_abc"), &models.PasskeyCredential{
 		CredentialId:   "cred_abc",
 		PublicKey:      "cG9zZXVkb2tleQ==",
 		SignCount:      4,

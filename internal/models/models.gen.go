@@ -16,10 +16,9 @@ const (
 
 // Defines values for AccountSettingsStatus.
 const (
-	AccountSettingsStatusActive          AccountSettingsStatus = "active"
-	AccountSettingsStatusClosed          AccountSettingsStatus = "closed"
-	AccountSettingsStatusPendingDeletion AccountSettingsStatus = "pending_deletion"
-	AccountSettingsStatusSuspended       AccountSettingsStatus = "suspended"
+	AccountSettingsStatusActive    AccountSettingsStatus = "active"
+	AccountSettingsStatusClosed    AccountSettingsStatus = "closed"
+	AccountSettingsStatusSuspended AccountSettingsStatus = "suspended"
 )
 
 // Valid indicates whether the value is a known member of the AccountSettingsStatus enum.
@@ -28,8 +27,6 @@ func (e AccountSettingsStatus) Valid() bool {
 	case AccountSettingsStatusActive:
 		return true
 	case AccountSettingsStatusClosed:
-		return true
-	case AccountSettingsStatusPendingDeletion:
 		return true
 	case AccountSettingsStatusSuspended:
 		return true
@@ -61,16 +58,16 @@ func (e AvatarUploadRequestContentType) Valid() bool {
 
 // Defines values for ConsentLogAction.
 const (
-	OptIn  ConsentLogAction = "opt_in"
-	OptOut ConsentLogAction = "opt_out"
+	ConsentLogActionOptIn  ConsentLogAction = "opt_in"
+	ConsentLogActionOptOut ConsentLogAction = "opt_out"
 )
 
 // Valid indicates whether the value is a known member of the ConsentLogAction enum.
 func (e ConsentLogAction) Valid() bool {
 	switch e {
-	case OptIn:
+	case ConsentLogActionOptIn:
 		return true
-	case OptOut:
+	case ConsentLogActionOptOut:
 		return true
 	default:
 		return false
@@ -79,22 +76,22 @@ func (e ConsentLogAction) Valid() bool {
 
 // Defines values for ConsentLogChannel.
 const (
-	Email  ConsentLogChannel = "email"
-	Postal ConsentLogChannel = "postal"
-	Push   ConsentLogChannel = "push"
-	Sms    ConsentLogChannel = "sms"
+	ConsentLogChannelEmail  ConsentLogChannel = "email"
+	ConsentLogChannelPostal ConsentLogChannel = "postal"
+	ConsentLogChannelPush   ConsentLogChannel = "push"
+	ConsentLogChannelSms    ConsentLogChannel = "sms"
 )
 
 // Valid indicates whether the value is a known member of the ConsentLogChannel enum.
 func (e ConsentLogChannel) Valid() bool {
 	switch e {
-	case Email:
+	case ConsentLogChannelEmail:
 		return true
-	case Postal:
+	case ConsentLogChannelPostal:
 		return true
-	case Push:
+	case ConsentLogChannelPush:
 		return true
-	case Sms:
+	case ConsentLogChannelSms:
 		return true
 	default:
 		return false
@@ -130,10 +127,9 @@ func (e CredentialsResponseAuthMethods) Valid() bool {
 
 // Defines values for CredentialsResponseStatus.
 const (
-	CredentialsResponseStatusActive          CredentialsResponseStatus = "active"
-	CredentialsResponseStatusClosed          CredentialsResponseStatus = "closed"
-	CredentialsResponseStatusPendingDeletion CredentialsResponseStatus = "pending_deletion"
-	CredentialsResponseStatusSuspended       CredentialsResponseStatus = "suspended"
+	CredentialsResponseStatusActive    CredentialsResponseStatus = "active"
+	CredentialsResponseStatusClosed    CredentialsResponseStatus = "closed"
+	CredentialsResponseStatusSuspended CredentialsResponseStatus = "suspended"
 )
 
 // Valid indicates whether the value is a known member of the CredentialsResponseStatus enum.
@@ -143,9 +139,70 @@ func (e CredentialsResponseStatus) Valid() bool {
 		return true
 	case CredentialsResponseStatusClosed:
 		return true
-	case CredentialsResponseStatusPendingDeletion:
-		return true
 	case CredentialsResponseStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MySettingsStatus.
+const (
+	MySettingsStatusActive    MySettingsStatus = "active"
+	MySettingsStatusClosed    MySettingsStatus = "closed"
+	MySettingsStatusSuspended MySettingsStatus = "suspended"
+)
+
+// Valid indicates whether the value is a known member of the MySettingsStatus enum.
+func (e MySettingsStatus) Valid() bool {
+	switch e {
+	case MySettingsStatusActive:
+		return true
+	case MySettingsStatusClosed:
+		return true
+	case MySettingsStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RecordConsentRequestAction.
+const (
+	RecordConsentRequestActionOptIn  RecordConsentRequestAction = "opt_in"
+	RecordConsentRequestActionOptOut RecordConsentRequestAction = "opt_out"
+)
+
+// Valid indicates whether the value is a known member of the RecordConsentRequestAction enum.
+func (e RecordConsentRequestAction) Valid() bool {
+	switch e {
+	case RecordConsentRequestActionOptIn:
+		return true
+	case RecordConsentRequestActionOptOut:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RecordConsentRequestChannel.
+const (
+	RecordConsentRequestChannelEmail  RecordConsentRequestChannel = "email"
+	RecordConsentRequestChannelPostal RecordConsentRequestChannel = "postal"
+	RecordConsentRequestChannelPush   RecordConsentRequestChannel = "push"
+	RecordConsentRequestChannelSms    RecordConsentRequestChannel = "sms"
+)
+
+// Valid indicates whether the value is a known member of the RecordConsentRequestChannel enum.
+func (e RecordConsentRequestChannel) Valid() bool {
+	switch e {
+	case RecordConsentRequestChannelEmail:
+		return true
+	case RecordConsentRequestChannelPostal:
+		return true
+	case RecordConsentRequestChannelPush:
+		return true
+	case RecordConsentRequestChannelSms:
 		return true
 	default:
 		return false
@@ -181,22 +238,19 @@ func (e UpdateCredentialsRequestAuthMethods) Valid() bool {
 
 // Defines values for UpdateSettingsRequestStatus.
 const (
-	Active          UpdateSettingsRequestStatus = "active"
-	Closed          UpdateSettingsRequestStatus = "closed"
-	PendingDeletion UpdateSettingsRequestStatus = "pending_deletion"
-	Suspended       UpdateSettingsRequestStatus = "suspended"
+	UpdateSettingsRequestStatusActive    UpdateSettingsRequestStatus = "active"
+	UpdateSettingsRequestStatusClosed    UpdateSettingsRequestStatus = "closed"
+	UpdateSettingsRequestStatusSuspended UpdateSettingsRequestStatus = "suspended"
 )
 
 // Valid indicates whether the value is a known member of the UpdateSettingsRequestStatus enum.
 func (e UpdateSettingsRequestStatus) Valid() bool {
 	switch e {
-	case Active:
+	case UpdateSettingsRequestStatusActive:
 		return true
-	case Closed:
+	case UpdateSettingsRequestStatusClosed:
 		return true
-	case PendingDeletion:
-		return true
-	case Suspended:
+	case UpdateSettingsRequestStatusSuspended:
 		return true
 	default:
 		return false
@@ -266,7 +320,8 @@ type AddressInput struct {
 	ZipCode   string  `json:"zip_code"`
 }
 
-// AvatarUploadRequest Declares the image the client intends to upload. The returned pre-signed URL is bound to exactly this content type and byte length, so the subsequent S3 PUT must match both or the signature is rejected.
+// AvatarUploadRequest Declares the image the client intends to upload. The returned pre-signed URL is bound to exactly this content type — the subsequent S3 PUT must send a matching Content-Type or the signature is rejected.
+// `content_length` is validated on this request but is NOT bound into the signature: SigV4 omits Content-Length from the signed header set for a body-less signing request, so the 2 MiB limit is not enforced by S3 at upload time. The limit is bounded in practice by the fixed single-object key — repeated uploads overwrite rather than accumulate.
 type AvatarUploadRequest struct {
 	// ContentLength Size of the image in bytes. Maximum 2 MiB.
 	ContentLength int64                          `json:"content_length"`
@@ -321,15 +376,21 @@ type CredentialsResponse struct {
 	// PasswordHash Argon2id hash; empty for passwordless-only accounts
 	PasswordHash *string `json:"password_hash,omitempty"`
 
-	// Status Account lifecycle status, so auth-api can refuse login for suspended or closed accounts. `pending_deletion` MUST remain loggable-in — the 30-day restore flow (POST /v1/me/profile/restore) requires an authenticated session.
+	// Status Account lifecycle status, so auth-api can refuse login for suspended or closed accounts. There is no `pending_deletion` state: account closure erases the account immediately, so a closed-then-erased account resolves as not-found rather than as a status value.
 	Status CredentialsResponseStatus `json:"status"`
 }
 
 // CredentialsResponseAuthMethods defines model for CredentialsResponse.AuthMethods.
 type CredentialsResponseAuthMethods string
 
-// CredentialsResponseStatus Account lifecycle status, so auth-api can refuse login for suspended or closed accounts. `pending_deletion` MUST remain loggable-in — the 30-day restore flow (POST /v1/me/profile/restore) requires an authenticated session.
+// CredentialsResponseStatus Account lifecycle status, so auth-api can refuse login for suspended or closed accounts. There is no `pending_deletion` state: account closure erases the account immediately, so a closed-then-erased account resolves as not-found rather than as a status value.
 type CredentialsResponseStatus string
+
+// DeleteProfileRequest Confirmation payload for account closure. Closure is immediate and irreversible, so the caller must demonstrate intent rather than merely being authenticated — this guards against an accidental client-side call and against a stolen session being used to destroy an account.
+type DeleteProfileRequest struct {
+	// ConfirmEmail Must equal the authenticated account's own email address, compared case-insensitively after trimming. A mismatch or an absent value returns 400 and erases nothing.
+	ConfirmEmail openapi_types.Email `json:"confirm_email"`
+}
 
 // ExportProfileResponse defines model for ExportProfileResponse.
 type ExportProfileResponse struct {
@@ -347,6 +408,16 @@ type MintUnsubscribeTokenRequest struct {
 type MintUnsubscribeTokenResponse struct {
 	Token *string `json:"token,omitempty"`
 }
+
+// MySettings Owner-visible subset of AccountSettings. Excludes tags and version — see GET /v1/me/settings.
+type MySettings struct {
+	EmailVerified bool             `json:"email_verified"`
+	PhoneVerified bool             `json:"phone_verified"`
+	Status        MySettingsStatus `json:"status"`
+}
+
+// MySettingsStatus defines model for MySettings.Status.
+type MySettingsStatus string
 
 // PasskeyCredential WebAuthn credential record (ADR 002 §7) — public key bytes only
 type PasskeyCredential struct {
@@ -403,6 +474,21 @@ type ProblemDetail struct {
 	Type     *string `json:"type,omitempty"`
 }
 
+// RecordConsentRequest A single marketing consent decision. Server-derived fields on the stored ConsentLog entry (recorded_at, ip_address, user_agent) are never accepted from the client — they are captured from the request itself as compliance evidence.
+type RecordConsentRequest struct {
+	Action  RecordConsentRequestAction  `json:"action"`
+	Channel RecordConsentRequestChannel `json:"channel"`
+
+	// Source Where the decision originated (e.g. "account_settings", "checkout"). Defaults to the authenticated self-service surface when omitted.
+	Source *string `json:"source,omitempty"`
+}
+
+// RecordConsentRequestAction defines model for RecordConsentRequest.Action.
+type RecordConsentRequestAction string
+
+// RecordConsentRequestChannel defines model for RecordConsentRequest.Channel.
+type RecordConsentRequestChannel string
+
 // UnsubscribeRequest defines model for UnsubscribeRequest.
 type UnsubscribeRequest struct {
 	Token string `json:"token"`
@@ -440,6 +526,12 @@ type UpdateCredentialsRequest struct {
 
 // UpdateCredentialsRequestAuthMethods defines model for UpdateCredentialsRequest.AuthMethods.
 type UpdateCredentialsRequestAuthMethods string
+
+// UpdateEmailRequest Email change request. `confirm_password` is absent by design — Komodo is passwordless-primary and this service is not an authenticator; re-authentication strength is auth-api's concern via the future auth_time claim (ADR 001 D3).
+type UpdateEmailRequest struct {
+	// NewEmail The address to change to. Must not already be registered to another account.
+	NewEmail openapi_types.Email `json:"new_email"`
+}
 
 // UpdateSettingsRequest defines model for UpdateSettingsRequest.
 type UpdateSettingsRequest struct {
@@ -536,11 +628,17 @@ type AddAddressJSONRequestBody = AddressInput
 // UpdateAddressJSONRequestBody defines body for UpdateAddress for application/json ContentType.
 type UpdateAddressJSONRequestBody = UpdateAddressRequest
 
+// RecordConsentJSONRequestBody defines body for RecordConsent for application/json ContentType.
+type RecordConsentJSONRequestBody = RecordConsentRequest
+
 // UpsertPaymentJSONRequestBody defines body for UpsertPayment for application/json ContentType.
 type UpsertPaymentJSONRequestBody = PaymentMethod
 
 // UpdatePreferencesJSONRequestBody defines body for UpdatePreferences for application/json ContentType.
 type UpdatePreferencesJSONRequestBody = Preferences
+
+// DeleteProfileJSONRequestBody defines body for DeleteProfile for application/json ContentType.
+type DeleteProfileJSONRequestBody = DeleteProfileRequest
 
 // CreateAccountJSONRequestBody defines body for CreateAccount for application/json ContentType.
 type CreateAccountJSONRequestBody = CreateAccountRequest
@@ -550,3 +648,6 @@ type UpdateProfileJSONRequestBody = UpdateAccountRequest
 
 // GetAvatarUploadURLJSONRequestBody defines body for GetAvatarUploadURL for application/json ContentType.
 type GetAvatarUploadURLJSONRequestBody = AvatarUploadRequest
+
+// UpdateEmailJSONRequestBody defines body for UpdateEmail for application/json ContentType.
+type UpdateEmailJSONRequestBody = UpdateEmailRequest

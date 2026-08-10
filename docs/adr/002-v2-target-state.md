@@ -53,7 +53,7 @@ lost, and so the V1 design doc stops claiming capability that does not exist.
 emits one structured JSON line per request carrying `request_id`, `method`, `path`, `status`, `bytes`,
 `latency_ms`, `ip`, and `user_agent`; CloudWatch metric filters turn those into countable metrics, and
 alarms fire from them. That is the whole of V1's measurement story — deliberately, and it is what
-`HLD.md` §3.3.2 now says. The V1 work is making it *reliable*: alarms that notify a real destination,
+`sdd.md` §3.3.2 now says. The V1 work is making it *reliable*: alarms that notify a real destination,
 dimensions that are correct, and coverage for the failure modes currently unwatched (`TODO.md` 24.3,
 24.23).
 

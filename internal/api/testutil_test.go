@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -53,15 +54,16 @@ func withScopes(req *http.Request, scopes []string) *http.Request {
 }
 
 type mockS3 struct {
-	getObjectFn     func(ctx context.Context, bucket, key string) ([]byte, error)
-	getObjectAsFn   func(ctx context.Context, bucket, key string, out any) error
-	putObjectFn     func(ctx context.Context, bucket, key string, data []byte, contentType string) error
-	deleteObjectFn  func(ctx context.Context, bucket, key string) error
-	listObjectsFn   func(ctx context.Context, bucket, prefix string) ([]string, error)
-	deleteObjectsFn func(ctx context.Context, bucket string, keys []string) error
-	headBucketFn    func(ctx context.Context, bucket string) error
-	presignPutFn    func(ctx context.Context, bucket, key string, ttl time.Duration, contentType string, contentLength int64) (string, error)
-	presignGetFn    func(ctx context.Context, bucket, key string, ttl time.Duration) (string, error)
+	getObjectFn       func(ctx context.Context, bucket, key string) ([]byte, error)
+	getObjectAsFn     func(ctx context.Context, bucket, key string, out any) error
+	getObjectStreamFn func(ctx context.Context, bucket, key string) (io.ReadCloser, error)
+	putObjectFn       func(ctx context.Context, bucket, key string, data []byte, contentType string) error
+	deleteObjectFn    func(ctx context.Context, bucket, key string) error
+	listObjectsFn     func(ctx context.Context, bucket, prefix string) ([]string, error)
+	deleteObjectsFn   func(ctx context.Context, bucket string, keys []string) error
+	headBucketFn      func(ctx context.Context, bucket string) error
+	presignPutFn      func(ctx context.Context, bucket, key string, ttl time.Duration, contentType string, contentLength int64) (string, error)
+	presignGetFn      func(ctx context.Context, bucket, key string, ttl time.Duration) (string, error)
 }
 
 func (m *mockS3) GetObject(ctx context.Context, bucket, key string) ([]byte, error) {
@@ -76,6 +78,13 @@ func (m *mockS3) GetObjectAs(ctx context.Context, bucket, key string, out any) e
 		return m.getObjectAsFn(ctx, bucket, key, out)
 	}
 	return nil
+}
+
+func (m *mockS3) GetObjectStream(ctx context.Context, bucket, key string) (io.ReadCloser, error) {
+	if m.getObjectStreamFn != nil {
+		return m.getObjectStreamFn(ctx, bucket, key)
+	}
+	return nil, nil
 }
 
 func (m *mockS3) PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error {

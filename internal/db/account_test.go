@@ -404,27 +404,127 @@ func TestDeleteAccount_ReleasesEmailReservationWithProfile(t *testing.T) {
 			},
 		}, nil)
 
-	var captured []dynamodb.TransactItem
+	var batches [][]dynamodb.TransactItem
 	client.EXPECT().
 		TransactWrite(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, items []dynamodb.TransactItem) error {
-			captured = items
+			batches = append(batches, items)
 			return nil
-		})
+		}).Times(2)
 
 	require.NoError(t, repo.DeleteAccount(context.Background(), "cust_1"))
-	require.Len(t, captured, 3)
+	require.Len(t, batches, 2)
 
-	var foundReservation bool
-	for _, item := range captured {
-		if pk, ok := item.Key["PK"].(*ddbTypes.AttributeValueMemberS); ok &&
-			pk.Value == "EMAIL#gone@example.com" {
-			foundReservation = true
-		}
+	assert.Equal(t, []string{"SETTINGS"}, transactSKs(t, batches[0]),
+		"child records must be erased before the identity records so a failure leaves a retryable account")
+
+	identity := batches[1]
+	require.Len(t, identity, 2)
+	assert.Equal(t, "PROFILE", skValue(t, identity[0]))
+	assert.Equal(t, "EMAIL#gone@example.com", pkValue(t, identity[1]),
+		"the profile and its email reservation must share one transaction")
+}
+
+func TestDeleteAccount_ChunkFailure_SurfacesErrorWithIdentityIntact(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	client := mocks.NewMockAPI(ctrl)
+	repo := New(client, "test-table")
+
+	items := []map[string]ddbTypes.AttributeValue{
+		{
+			"PK":    &ddbTypes.AttributeValueMemberS{Value: "ACCOUNT#cust_1"},
+			"SK":    &ddbTypes.AttributeValueMemberS{Value: "PROFILE"},
+			"email": &ddbTypes.AttributeValueMemberS{Value: "gone@example.com"},
+		},
 	}
-	assert.True(t, foundReservation, "hard erase must release the email reservation")
-	assert.Equal(t, "PROFILE", captured[0].Key["SK"].(*ddbTypes.AttributeValueMemberS).Value,
-		"profile and its reservation must lead the batch so they share one transaction")
+	for i := range 150 {
+		items = append(items, map[string]ddbTypes.AttributeValue{
+			"PK": &ddbTypes.AttributeValueMemberS{Value: "ACCOUNT#cust_1"},
+			"SK": &ddbTypes.AttributeValueMemberS{Value: fmt.Sprintf("ADDR#%03d", i)},
+		})
+	}
+	client.EXPECT().QueryAll(gomock.Any(), gomock.Any()).Return(items, nil)
+
+	var calls int
+	client.EXPECT().
+		TransactWrite(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, batch []dynamodb.TransactItem) error {
+			calls++
+			if calls == 1 {
+				assert.Len(t, batch, 100)
+				return nil
+			}
+			return errors.New("transaction canceled")
+		}).Times(2)
+
+	err := repo.DeleteAccount(context.Background(), "cust_1")
+	require.Error(t, err)
+	assert.Equal(t, 2, calls, "erasure must stop at the failing chunk and never reach the identity records")
+}
+
+func TestDeleteAccount_EmptyPartition_ReportsNotFound(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	client := mocks.NewMockAPI(ctrl)
+	repo := New(client, "test-table")
+
+	client.EXPECT().QueryAll(gomock.Any(), gomock.Any()).Return(nil, nil)
+	client.EXPECT().TransactWrite(gomock.Any(), gomock.Any()).Times(0)
+
+	err := repo.DeleteAccount(context.Background(), "cust_1")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNotFound))
+}
+
+func TestDeleteAccount_UnreadableProfileEmail_ErasesNothing(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	client := mocks.NewMockAPI(ctrl)
+	repo := New(client, "test-table")
+
+	client.EXPECT().
+		QueryAll(gomock.Any(), gomock.Any()).
+		Return([]map[string]ddbTypes.AttributeValue{
+			{
+				"PK": &ddbTypes.AttributeValueMemberS{Value: "ACCOUNT#cust_1"},
+				"SK": &ddbTypes.AttributeValueMemberS{Value: "PROFILE"},
+			},
+			{
+				"PK": &ddbTypes.AttributeValueMemberS{Value: "ACCOUNT#cust_1"},
+				"SK": &ddbTypes.AttributeValueMemberS{Value: "SETTINGS"},
+			},
+		}, nil)
+	client.EXPECT().TransactWrite(gomock.Any(), gomock.Any()).Times(0)
+
+	err := repo.DeleteAccount(context.Background(), "cust_1")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errUnreadableProfileEmail)
+}
+
+func TestDeleteAccount_MissingProfileRecord_ReportsNotFound(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	client := mocks.NewMockAPI(ctrl)
+	repo := New(client, "test-table")
+
+	client.EXPECT().
+		QueryAll(gomock.Any(), gomock.Any()).
+		Return([]map[string]ddbTypes.AttributeValue{
+			{
+				"PK": &ddbTypes.AttributeValueMemberS{Value: "ACCOUNT#cust_1"},
+				"SK": &ddbTypes.AttributeValueMemberS{Value: "SETTINGS"},
+			},
+		}, nil)
+	client.EXPECT().TransactWrite(gomock.Any(), gomock.Any()).Times(0)
+
+	err := repo.DeleteAccount(context.Background(), "cust_1")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNotFound))
 }
 
 func TestResolveAccountIDByEmail_Duplicates_RefusesAmbiguousLookup(t *testing.T) {
@@ -451,4 +551,29 @@ func TestResolveAccountIDByEmail_Duplicates_RefusesAmbiguousLookup(t *testing.T)
 	assert.True(t, errors.Is(err, ErrEmailAlreadyExists))
 	assert.False(t, errors.Is(err, ErrNotFound),
 		"an ambiguous email must never resolve to a login for an arbitrarily chosen account")
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+func transactSKs(t *testing.T, batch []dynamodb.TransactItem) []string {
+	t.Helper()
+	out := make([]string, len(batch))
+	for i, item := range batch {
+		out[i] = skValue(t, item)
+	}
+	return out
+}
+
+func skValue(t *testing.T, item dynamodb.TransactItem) string {
+	t.Helper()
+	sk, ok := item.Key["SK"].(*ddbTypes.AttributeValueMemberS)
+	require.True(t, ok)
+	return sk.Value
+}
+
+func pkValue(t *testing.T, item dynamodb.TransactItem) string {
+	t.Helper()
+	pk, ok := item.Key["PK"].(*ddbTypes.AttributeValueMemberS)
+	require.True(t, ok)
+	return pk.Value
 }

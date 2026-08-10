@@ -4,7 +4,7 @@
 - **Date:** 2026-06-23 (original) · amended 2026-06-29 (Phase 9 merge) · amended 2026-07-29 (D12, public-surface audit)
 - **Deciders:** rad
 - **Supersedes:** —
-- **Related:** `docs/prd.md`, `docs/hld.md`, `docs/data-model.md`, `../openapi.yaml`, `TODO.md` (itemized work), auth-api ADR 001 (token verification / M2M contract)
+- **Related:** `docs/prd.md`, `docs/sdd.md`, `../openapi.yaml`, `TODO.md` (itemized work), auth-api ADR 001 (token verification / M2M contract)
 
 ## Context
 
@@ -230,7 +230,7 @@ review (`TODO.md` 26.5); a convenience route over windows that may change is pre
 - D1 is the only **breaking** route change in V1 (BFF + comms-api coordination required). The schema prunings (D5) are breaking only in the sense that fields disappear from response payloads — clients that ignored them are unaffected.
 - D3's amendment (2026-07-28) **removes** a dependency rather than adding one: no scheduled worker, no `pending_deletion` state, no restore route. The open "CloudWatch Events vs. events-api scheduled consumer" question it previously carried is closed by not needing either. What it adds instead is a confirmation gate on the delete request and a raised bar on erasure correctness, since the erase is now synchronous and customer-facing.
 - D7's optimistic concurrency adds a 409 path that BFFs must handle (refetch + retry). Worth it for settings; explicitly **not** applied to profile/preferences where the extra round-trip would cost more than the race risk.
-- D8 makes this repo the single source of truth for the accounts table schema. Any future schema change starts in `data-model.md` and the CDK in the same PR.
+- D8 makes this repo the single source of truth for the accounts table schema. Any future schema change starts in `sdd.md` §5 and the CDK in the same PR.
 - The cross-review gate (`AGENTS.md`) applies: every change `software-engineer` produces is reviewed by `quality-assurance` against `~/.claude/standards/` and this ADR before it's called done.
 - After Phase 9, accounts-api enters GA-candidate state. Forward-looking work (avatar transforms, cursor pagination, shareable wishlists, multi-region cache) is V2 and out of scope here.
 - D11 makes the `TEST_TIER` gate in every phase-exit command above load-bearing for the first time. Until Phase 18.1 lands, that gate is a no-op and phases have been exiting on unit tests alone — worth knowing when reading the "Done" column above.

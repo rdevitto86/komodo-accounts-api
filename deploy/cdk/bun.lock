@@ -7,7 +7,7 @@
       "dependencies": {
         "aws-cdk-lib": "^2.261.0",
         "constructs": "^10.6.0",
-        "komodo-forge-sdk-ts": "github:rdevitto86/komodo-forge-sdk-ts#v0.5.2",
+        "komodo-forge-sdk-ts": "github:rdevitto86/komodo-forge-sdk-ts#v0.6.1",
       },
       "devDependencies": {
         "@types/node": "^26.1.0",
@@ -250,7 +250,7 @@
 
     "js-tokens": ["js-tokens@10.0.0", "", {}, "sha512-lM/UBzQmfJRo9ABXbPWemivdCW8V2G8FHaHdypQaIy523snUjog0W71ayWXTjiR+ixeMyVHN2XcpnTd/liPg/Q=="],
 
-    "komodo-forge-sdk-ts": ["@komodo-forge-sdk/typescript@github:rdevitto86/komodo-forge-sdk-ts#568676b", { "dependencies": { "aws-cdk-lib": "^2.261.0", "constructs": "^10.6.0", "fast-redact": "^3.5.0", "globals": "^17.7.0", "jose": "^6.2.3" } }, "rdevitto86-komodo-forge-sdk-ts-568676b", "sha512-GrLw8HWiW2cTGzdCaZjsDmkHrC4dWPuT2Yt8zuf25mgUYgqaEnHH8XyWZL87+aBOI6EaK4RpzHJaNRa5whae8A=="],
+    "komodo-forge-sdk-ts": ["@komodo-forge-sdk/typescript@github:rdevitto86/komodo-forge-sdk-ts#0a9b78e", { "dependencies": { "aws-cdk-lib": "^2.261.0", "constructs": "^10.6.0", "fast-redact": "^3.5.0", "globals": "^17.7.0", "jose": "^6.2.3" } }, "rdevitto86-komodo-forge-sdk-ts-0a9b78e", "sha512-eWqE/9I0gM9D7+rr9RtnIT8icS/0hGz+qUTU8+/hig2S5HQgsBm58TBKQsxSHpp2TlT/Cs3CHnHXv56wgs+znw=="],
 
     "lightningcss": ["lightningcss@1.32.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.32.0", "lightningcss-darwin-arm64": "1.32.0", "lightningcss-darwin-x64": "1.32.0", "lightningcss-freebsd-x64": "1.32.0", "lightningcss-linux-arm-gnueabihf": "1.32.0", "lightningcss-linux-arm64-gnu": "1.32.0", "lightningcss-linux-arm64-musl": "1.32.0", "lightningcss-linux-x64-gnu": "1.32.0", "lightningcss-linux-x64-musl": "1.32.0", "lightningcss-win32-arm64-msvc": "1.32.0", "lightningcss-win32-x64-msvc": "1.32.0" } }, "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ=="],
 
