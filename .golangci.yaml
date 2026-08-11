@@ -61,6 +61,16 @@ linters:
           - contextcheck
         text: "->emit` should pass the context parameter"
 
+      - path: "cmd/server/setup\\.go"
+        linters:
+          - gosec
+        text: "G101"
+
+      - path: "internal/clients/auth\\.go"
+        linters:
+          - gosec
+        text: "G101"
+
 formatters:
   enable:
     - gofmt

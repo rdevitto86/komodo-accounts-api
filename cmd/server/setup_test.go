@@ -82,13 +82,13 @@ func TestMissingKeys_NoVars_ReturnsNil(t *testing.T) {
 }
 
 func TestLoadBootstrapSecretsErrorsOnMissingRequiredKeys(t *testing.T) {
-	if _, _, _, _, err := setBootstrapSecrets(map[string]string{}); err == nil {
+	if _, _, _, _, _, err := setBootstrapSecrets(map[string]string{}); err == nil {
 		t.Fatal("expected an error when required secret-backed env vars are unset")
 	}
 }
 
 func TestLoadBootstrapSecretsPopulatesJWTAndUnsubscribeMaterial(t *testing.T) {
-	jwtPublicKey, jwtIssuer, unsubscribeKey, idempotencyTTLSec, err := setBootstrapSecrets(map[string]string{
+	jwtPublicKey, jwtIssuer, unsubscribeKey, idempotencyTTLSec, _, err := setBootstrapSecrets(map[string]string{
 		jwt.JWT_PUBLIC_KEY:     "pem",
 		jwt.JWT_ISSUER:         "https://auth.komodo.test",
 		unsubscribeTokenSecret: "unsub-key",
@@ -109,7 +109,7 @@ func TestLoadBootstrapSecretsPopulatesJWTAndUnsubscribeMaterial(t *testing.T) {
 }
 
 func TestLoadBootstrapSecretsAppliesIdempotencyTTLDefault(t *testing.T) {
-	_, _, _, idempotencyTTLSec, err := setBootstrapSecrets(map[string]string{
+	_, _, _, idempotencyTTLSec, _, err := setBootstrapSecrets(map[string]string{
 		jwt.JWT_PUBLIC_KEY:     "pem",
 		jwt.JWT_ISSUER:         "https://auth.komodo.test",
 		unsubscribeTokenSecret: "unsub-key",

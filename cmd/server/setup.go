@@ -77,10 +77,7 @@ type envVar struct{ key, value string }
 
 // Preloads all the required dependencies for the server.
 func bootstrap() bootstrapResult {
-	boot := defaultBootTimeout
-	if v, err := time.ParseDuration(os.Getenv("BOOTSTRAP_TIMEOUT")); err == nil && v > 0 {
-		boot = v
-	}
+	boot := envDuration("BOOTSTRAP_TIMEOUT", defaultBootTimeout)
 
 	ctx, cancel := context.WithTimeout(context.Background(), boot)
 	defer cancel()
@@ -142,6 +139,37 @@ func bootstrap() bootstrapResult {
 		serviceAudience = v
 	}
 
+	verify, ddb, s3Client := initClients(ctx, awsRegion, awsEndpoint, jwtPublicKey, jwtIssuer, userAudience, serviceAudience)
+
+	eventPublisher := initOutboundClients(
+		os.Getenv("AUTH_API_BASE_URL"),
+		os.Getenv("EVENTS_API_BASE_URL"),
+		os.Getenv("ACCOUNTS_API_CLIENT_ID"),
+		clientSecret,
+	)
+
+	logger.Info("completed bootstrap",
+		logger.Attr("user_audience", userAudience),
+		logger.Attr("service_audience", serviceAudience),
+	)
+
+	return bootstrapResult{
+		verify:            verify,
+		ddb:               ddb,
+		s3Client:          s3Client,
+		unsubscribeKey:    unsubscribeKey,
+		generalLimiter:    generalLimiter,
+		idempotencyTTLSec: idempotencyTTLSec,
+		eventPublisher:    eventPublisher,
+	}
+}
+
+func initClients(
+	ctx context.Context,
+	awsRegion, awsEndpoint string,
+	jwtPublicKey, jwtIssuer string,
+	userAudience, serviceAudience string,
+) (verifiers, *awsddb.Client, *sdks3.Client) {
 	var (
 		verify     verifiers
 		ddb        *awsddb.Client
@@ -206,10 +234,10 @@ func bootstrap() bootstrapResult {
 		logger.Fatal("failed to initialize s3 client", s3Err)
 	}
 
-	authAPIBaseURL := os.Getenv("AUTH_API_BASE_URL")
-	eventsAPIBaseURL := os.Getenv("EVENTS_API_BASE_URL")
-	clientID := os.Getenv("ACCOUNTS_API_CLIENT_ID")
+	return verify, ddb, s3Client
+}
 
+func initOutboundClients(authAPIBaseURL, eventsAPIBaseURL, clientID, clientSecret string) *domain.Publisher {
 	if missing := missingKeys(
 		envVar{"AUTH_API_BASE_URL", authAPIBaseURL},
 		envVar{"EVENTS_API_BASE_URL", eventsAPIBaseURL},
@@ -236,20 +264,7 @@ func bootstrap() bootstrapResult {
 		logger.Fatal("failed to initialize domain event publisher", err)
 	}
 
-	logger.Info("completed bootstrap",
-		logger.Attr("user_audience", userAudience),
-		logger.Attr("service_audience", serviceAudience),
-	)
-
-	return bootstrapResult{
-		verify:            verify,
-		ddb:               ddb,
-		s3Client:          s3Client,
-		unsubscribeKey:    unsubscribeKey,
-		generalLimiter:    generalLimiter,
-		idempotencyTTLSec: idempotencyTTLSec,
-		eventPublisher:    eventPublisher,
-	}
+	return eventPublisher
 }
 
 // Checks if the health check flag is set and runs the health check.
@@ -302,4 +317,18 @@ func setBootstrapSecrets(vals map[string]string) (
 		err = fmt.Errorf("missing required secret-backed environment variables: %s", strings.Join(missing, ", "))
 	}
 	return jwtPublicKey, jwtIssuer, unsubscribeKey, idempotencyTTLSec, clientSecret, err
+}
+
+func envDuration(key string, def time.Duration) time.Duration {
+	if v, err := time.ParseDuration(os.Getenv(key)); err == nil && v > 0 {
+		return v
+	}
+	return def
+}
+
+func envInt(key string, def int) int {
+	if v, err := strconv.Atoi(os.Getenv(key)); err == nil && v > 0 {
+		return v
+	}
+	return def
 }

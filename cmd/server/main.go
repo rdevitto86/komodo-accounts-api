@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
-	"time"
 
 	"komodo-accounts-api/internal/api"
 	"komodo-accounts-api/internal/db"
@@ -23,7 +21,7 @@ func main() {
 
 	// checks for health check mode
 	if code, isHealthCheck := healthCheckMode(os.Args, publicAddr, privateAddr); isHealthCheck {
-		fmt.Fprintf(os.Stdout, "Health check mode enabled. Result: %d\n", code)
+		_, _ = fmt.Fprintf(os.Stdout, "Health check mode enabled. Result: %d\n", code)
 		os.Exit(code)
 	}
 
@@ -52,22 +50,10 @@ func main() {
 		logger.Attr("ttl_sec", svr.idempotencyTTLSec),
 	)
 
-	presignExpiry := defaultPresignExpiry
-	if v, err := time.ParseDuration(os.Getenv("S3_PRESIGN_TTL")); err == nil && v > 0 {
-		presignExpiry = v
-	}
-	unsubTokenTTL := defaultUnsubTokenTTL
-	if v, err := time.ParseDuration(os.Getenv("UNSUBSCRIBE_TOKEN_TTL")); err == nil && v > 0 {
-		unsubTokenTTL = v
-	}
-	cacheTTL := defaultCacheTTL
-	if v, err := time.ParseDuration(os.Getenv("PROFILE_CACHE_TTL")); err == nil && v > 0 {
-		cacheTTL = v
-	}
-	cacheMaxSize := defaultCacheMaxSize
-	if v, err := strconv.Atoi(os.Getenv("PROFILE_CACHE_MAX_ENTRIES")); err == nil && v > 0 {
-		cacheMaxSize = v
-	}
+	presignExpiry := envDuration("S3_PRESIGN_TTL", defaultPresignExpiry)
+	unsubTokenTTL := envDuration("UNSUBSCRIBE_TOKEN_TTL", defaultUnsubTokenTTL)
+	cacheTTL := envDuration("PROFILE_CACHE_TTL", defaultCacheTTL)
+	cacheMaxSize := envInt("PROFILE_CACHE_MAX_ENTRIES", defaultCacheMaxSize)
 
 	// init global service
 	svc := api.NewService(
@@ -85,26 +71,11 @@ func main() {
 		},
 	)
 
-	readTimeout := defaultReadTimeout
-	if v, err := time.ParseDuration(os.Getenv("SERVER_READ_TIMEOUT")); err == nil && v > 0 {
-		readTimeout = v
-	}
-	writeTimeout := defaultWriteTimeout
-	if v, err := time.ParseDuration(os.Getenv("SERVER_WRITE_TIMEOUT")); err == nil && v > 0 {
-		writeTimeout = v
-	}
-	idleTimeout := defaultIdleTimeout
-	if v, err := time.ParseDuration(os.Getenv("SERVER_IDLE_TIMEOUT")); err == nil && v > 0 {
-		idleTimeout = v
-	}
-	headerTimeout := defaultHeaderTimeout
-	if v, err := time.ParseDuration(os.Getenv("SERVER_READ_HEADER_TIMEOUT")); err == nil && v > 0 {
-		headerTimeout = v
-	}
-	shutdownTimeout := defaultShutdownTimeout
-	if v, err := time.ParseDuration(os.Getenv("SERVER_SHUTDOWN_TIMEOUT")); err == nil && v > 0 {
-		shutdownTimeout = v
-	}
+	readTimeout := envDuration("SERVER_READ_TIMEOUT", defaultReadTimeout)
+	writeTimeout := envDuration("SERVER_WRITE_TIMEOUT", defaultWriteTimeout)
+	idleTimeout := envDuration("SERVER_IDLE_TIMEOUT", defaultIdleTimeout)
+	headerTimeout := envDuration("SERVER_READ_HEADER_TIMEOUT", defaultHeaderTimeout)
+	shutdownTimeout := envDuration("SERVER_SHUTDOWN_TIMEOUT", defaultShutdownTimeout)
 
 	err := sdkserver.Serve(
 		shutdownTimeout,
