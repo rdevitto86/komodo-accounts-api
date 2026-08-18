@@ -46,16 +46,26 @@ linters:
       comparison: true
 
   exclusions:
+    paths:
+      - deploy/cdk/node_modules
+
     rules:
       - path: "_test\\.go"
         linters:
           - wrapcheck
           - gosec
           - errcheck
+          - cyclop
+          - gocognit
 
       - path: "main\\.go"
         linters:
           - contextcheck
+
+      - path: "(internal|src)/config/"
+        linters:
+          - gosec
+        text: "G101"
 
       - linters:
           - contextcheck
