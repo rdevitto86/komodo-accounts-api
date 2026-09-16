@@ -1,6 +1,6 @@
 ARG DISTROLESS_TAG=debug
 
-FROM golang:1.26 AS build
+FROM golang:1.27.0 AS build
 
 WORKDIR /app
 

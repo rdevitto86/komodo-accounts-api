@@ -2,9 +2,6 @@ package main
 
 import (
 	"testing"
-
-	"github.com/rdevitto86/komodo-forge-sdk-go/api/idempotency"
-	"github.com/rdevitto86/komodo-forge-sdk-go/security/jwt"
 )
 
 func TestSecretKeysExcludeCDKInjectedNames(t *testing.T) {
@@ -89,10 +86,11 @@ func TestLoadBootstrapSecretsErrorsOnMissingRequiredKeys(t *testing.T) {
 
 func TestLoadBootstrapSecretsPopulatesJWTAndUnsubscribeMaterial(t *testing.T) {
 	jwtPublicKey, jwtIssuer, unsubscribeKey, idempotencyTTLSec, _, err := setBootstrapSecrets(map[string]string{
-		jwt.JWT_PUBLIC_KEY:     "pem",
-		jwt.JWT_ISSUER:         "https://auth.komodo.test",
-		unsubscribeTokenSecret: "unsub-key",
-		"IDEMPOTENCY_TTL_SEC":  "900",
+		jwtPublicKeySecret:      "pem",
+		jwtIssuerSecret:         "https://auth.komodo.test",
+		unsubscribeTokenSecret:  "unsub-key",
+		accountsAPIClientSecret: "client-secret",
+		"IDEMPOTENCY_TTL_SEC":   "900",
 	})
 	if err != nil {
 		t.Fatalf("loadBootstrapSecrets() returned an error: %v", err)
@@ -110,15 +108,15 @@ func TestLoadBootstrapSecretsPopulatesJWTAndUnsubscribeMaterial(t *testing.T) {
 
 func TestLoadBootstrapSecretsAppliesIdempotencyTTLDefault(t *testing.T) {
 	_, _, _, idempotencyTTLSec, _, err := setBootstrapSecrets(map[string]string{
-		jwt.JWT_PUBLIC_KEY:     "pem",
-		jwt.JWT_ISSUER:         "https://auth.komodo.test",
-		unsubscribeTokenSecret: "unsub-key",
+		jwtPublicKeySecret:      "pem",
+		jwtIssuerSecret:         "https://auth.komodo.test",
+		unsubscribeTokenSecret:  "unsub-key",
+		accountsAPIClientSecret: "client-secret",
 	})
 	if err != nil {
 		t.Fatalf("loadBootstrapSecrets() returned an error: %v", err)
 	}
-	if idempotencyTTLSec != idempotency.DEFAULT_IDEM_TTL_SEC {
-		t.Errorf("idempotencyTTLSec = %d, want the SDK default %d",
-			idempotencyTTLSec, idempotency.DEFAULT_IDEM_TTL_SEC)
+	if idempotencyTTLSec != defaultIdempotencyTTLSec {
+		t.Errorf("idempotencyTTLSec = %d, want the default %d", idempotencyTTLSec, defaultIdempotencyTTLSec)
 	}
 }

@@ -233,7 +233,7 @@ func (s *Service) UpdateSettingsTags(
 
 // Helper function to extract service name from request scopes
 func callerServiceFromScopes(req *http.Request) string {
-	scopes, _ := req.Context().Value(ctxKeys.SCOPES_KEY).([]string)
+	scopes := ctxKeys.GetScopes(req.Context())
 	for _, s := range scopes {
 		if strings.HasPrefix(s, "svc:") {
 			return strings.TrimPrefix(s, "svc:")
