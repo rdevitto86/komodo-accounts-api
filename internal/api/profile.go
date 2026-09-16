@@ -224,6 +224,5 @@ func avatarKey(accountID string) string {
 
 // Extracts the account ID from the JWT token in the request context.
 func accountIDFromJWT(req *http.Request) string {
-	id, _ := req.Context().Value(ctxKeys.USER_ID_KEY).(string)
-	return id
+	return ctxKeys.GetSubject(req.Context())
 }

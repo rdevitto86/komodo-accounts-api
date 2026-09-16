@@ -327,6 +327,21 @@ func (mr *MockAPIMockRecorder) UpdateItemAs(ctx, table, key, expr, exprVals, exp
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateItemAs", reflect.TypeOf((*MockAPI)(nil).UpdateItemAs), ctx, table, key, expr, exprVals, exprNames, cond, out)
 }
 
+// UpdateWithVersion mocks base method.
+func (m *MockAPI) UpdateWithVersion(ctx context.Context, table string, key map[string]types.AttributeValue, clauses dynamodb.SetClauses, expectedVersion int64) (map[string]types.AttributeValue, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWithVersion", ctx, table, key, clauses, expectedVersion)
+	ret0, _ := ret[0].(map[string]types.AttributeValue)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateWithVersion indicates an expected call of UpdateWithVersion.
+func (mr *MockAPIMockRecorder) UpdateWithVersion(ctx, table, key, clauses, expectedVersion any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWithVersion", reflect.TypeOf((*MockAPI)(nil).UpdateWithVersion), ctx, table, key, clauses, expectedVersion)
+}
+
 // WriteItem mocks base method.
 func (m *MockAPI) WriteItem(ctx context.Context, table string, singleItem map[string]types.AttributeValue, batch bool, batchItems []map[string]types.AttributeValue, cond *string) error {
 	m.ctrl.T.Helper()
