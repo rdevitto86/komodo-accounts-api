@@ -71,6 +71,7 @@ Unlike auth-api's JWT signing key (two-slot overlap, old key still verifies unti
      -d '{"channel": "email"}'
    # then POST the returned token to /v1/communications/unsubscribe and confirm 204
    ```
+   The mint call uses today's private port `7052`. Once architecture decision 0008 is built, the service has one port and the same call goes to it.
 
 ## Emergency rotation (compromised secret)
 

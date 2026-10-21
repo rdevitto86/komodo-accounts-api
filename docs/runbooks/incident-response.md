@@ -20,6 +20,8 @@
 
 Single Fargate task serves both ports — public `7051` (external, via ALB) and private `7052` (internal, via Cloud Map `accounts-api.komodo.internal`).
 
+> Architecture decision 0008 (approved 2026-10-21, not yet built) replaces the two ports with one listener; the token's audience and per-route scope, not the `7052` security group, will gate private routes. The steps below describe what runs today.
+
 1. **Container/task health:**
    ```bash
    aws ecs describe-services --cluster komodo-<env> --services accounts-api
