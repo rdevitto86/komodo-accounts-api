@@ -19,20 +19,16 @@ Accounts API is the canonical store for account identity data: profiles, account
 
 ![System context](diagrams/system-context.png)
 
-Both planes are served by the same deployable service through one door — one listener, one port — so the public and private surfaces can never drift apart in version. Customers reach that door through the load balancer and firewall; other Komodo programs reach it from inside Komodo's network. The token, not the network, decides which plane a request may enter (Komodo architecture decision 0008).
-
-**Not yet built.** The code still runs two listeners, a public port and a private port (`PORT` and `PORT_PRIVATE` in `cmd/server/main.go`). This section describes the approved target.
+Both planes are served by the same deployable service — one artifact, two listeners, so the public and private surfaces can never drift apart in version.
 
 | | Public | Private |
 |---|---|---|
-| Listener | The service's one listener | The same listener |
-| Exposure | Reachable from the internet, behind a load balancer and a web application firewall | Reachable from inside Komodo's network. Security groups stay, but they no longer define this plane — the token does |
+| Listener | Public listener, internet-facing | Private listener, internal-only |
+| Exposure | Reachable from the internet, behind a load balancer and a web application firewall | Reachable only from inside Komodo's private network — sibling services only |
 | Callers | The web/app front end, on behalf of a signed-in customer | Sibling Komodo services (auth-api, payments-api, order-api, communications-api) |
-| Auth | Customer access token (audience `komodo-apis:user`), signature-verified on every request; never accepted on a private route | Service access token (audience `komodo-apis:service`), issued through machine-to-machine credential exchange, valid for 5 minutes, signature-verified on every request; never accepted on a public route. Every private route also demands its own scope, granted only to services listed in auth-api's client registry |
+| Auth | Customer access token, signature-verified on every request | Service access token, issued through machine-to-machine credential exchange, signature-verified on every request |
 | Surface | Profile (including avatar upload), settings, addresses, payments (display-safe view only), preferences, consent, account closure, data export, unsubscribe verification | Credential read/write, passkey lifecycle, payment-method read, settings and tag writes, unsubscribe-token issuance |
 | Rate limiting | Global and per-route limits, enforced at the network edge and in-process | Trusted callers only; no public-style limiter |
-
-Every request's token is verified first, and its audience decides which plane's routes it may reach. A merge-gate test enumerates every private route and fails if any accepts a customer token or no token. A separate private door protected only against a stolen service token used from outside the network; the token gate works the same on managed containers and serverless functions, removes the second port, and lets one route serve both kinds of caller. Customer token lifetimes are unchanged; service tokens drop from 1 hour to 5 minutes.
 
 <br/>
 
@@ -40,7 +36,7 @@ Every request's token is verified first, and its audience decides which plane's 
 
 | Component | Responsibility |
 |---|---|
-| Service bootstrap | Loads configuration and secrets, wires dependencies, registers routes, starts the listener (two listeners until decision 0008 is built) |
+| Service bootstrap | Loads configuration and secrets, wires dependencies, registers routes, starts both listeners |
 | Request-handling layer (per resource) | Translates each incoming request — profile, settings, passkey, address, payment, preferences, consent, export, unsubscribe — into a service-layer call and a response |
 | Service / orchestration layer | Enforces business invariants (one default address or payment method, tag-ownership rules), coordinates changes that touch more than one record, and decides when a domain event should fire |
 | Data-store adapter | Translates service-layer calls into reads and writes against this service's own database |
@@ -133,8 +129,6 @@ Because erasure now happens while the customer waits rather than in a background
 | `/v1/accounts/{id}/settings/tags` | PUT | private | Update account tags (namespace-restricted) |
 | `/v1/accounts/{id}/communications/unsubscribe-token` | POST | private | Mint stateless unsubscribe token |
 
-The Plane column names the token audience a route accepts: **public** takes a customer token (`komodo-apis:user`), **private** takes a service token (`komodo-apis:service`) carrying that route's own scope, and **both** marks the health checks, which need no token.
-
 `openapi.yaml` is the versioned contract source of truth for request/response shapes and the full error catalog — this table is a map of what exists, not a substitute for it.
 
 Rows marked **stub, 501** have a registered route, a published contract entry, and a handler that
@@ -224,7 +218,6 @@ Full per-event derivation notes — how each event is computed from the underlyi
 | Personal data leaking through the events pipeline | The message-distribution system and its delivery queues are internal-only and access-controlled per subscriber; because an event may still carry personal data such as email or phone, every subscribing system is responsible for its own redaction before that data reaches its own logs |
 | Unsubscribe link forgery | The link carries a cryptographically signed, tamper-evident token rather than a guessable identifier, with a 30-day validity window and a comparison method resistant to timing attacks |
 | Exported data exposure | Export files are stored privately, encrypted, transferred only over secure connections, expire automatically after 7 days, are only ever reachable through a 15-minute download link, and are deleted outright as part of account erasure |
-| Private route reached by a customer or an outside caller | The network is no longer the fence. Each private route accepts only a service token with the service audience and that route's own scope, granted only to services in auth-api's client registry; service tokens last 5 minutes; a merge-gate test fails if any private route accepts a customer token or no token (decision 0008, not yet built) |
 | Unauthenticated routes | None, apart from basic health checks, the unsubscribe verification route (which authenticates via its own signed token instead of a sign-in session), and the registration-check route (heavily rate-limited by design, see above) |
 | Cross-service write loss | A conflicting simultaneous write to account settings is rejected rather than silently overwritten, and the caller must re-fetch and retry; switching a default address or payment method happens as a single atomic operation for the same reason |
 | Avatar upload abuse | An account has exactly one photo at one fixed location, so repeated uploads overwrite rather than accumulate and an account's photo storage cannot grow. The link is valid for 15 minutes and restricted to standard image formats, enforced as part of the link itself. The size cap is the remaining control that must be enforced rather than advertised, since the link is reusable within its lifetime. Every uploaded file lands in a private, encrypted, secure-transport-only store |
@@ -235,7 +228,7 @@ Full per-event derivation notes — how each event is computed from the underlyi
 
 #### 2.5.1 Runtime Hosting
 
-Both planes run as one containerized service on managed container hosting; a serverless-function alternative was evaluated for V1 and dropped in favor of always-on containers. The public plane sits behind a load balancer with a web application firewall in front, using a managed baseline rule set tuned against common and known-bad request patterns. It enforces a global limit of 2,000 requests per period, tightened to 200 on the highest-value routes, and it's skipped in local/dev environments. One container image serves both planes through one listener (two listeners until decision 0008 is built); a dedicated health-check command reports service health. Local development runs against emulated cloud services on a shared local network, so engineers can develop without a live cloud account.
+Both planes run as one containerized service on managed container hosting; a serverless-function alternative was evaluated for V1 and dropped in favor of always-on containers. The public plane sits behind a load balancer with a web application firewall in front, using a managed baseline rule set tuned against common and known-bad request patterns. It enforces a global limit of 2,000 requests per period, tightened to 200 on the highest-value routes, and it's skipped in local/dev environments. One container image serves both listeners; a dedicated health-check command reports service health. Local development runs against emulated cloud services on a shared local network, so engineers can develop without a live cloud account.
 
 #### 2.5.2 Databases
 
@@ -255,7 +248,7 @@ Every sensitive credential this service needs — including the keys used to ver
 
 ### 3.1 Deployment Strategy
 
-Infrastructure is defined in code and deployed per environment, not configured by hand — every environment is reproducible from source. The same container image serves both planes, so the public and private surfaces can never drift apart in version. Local development runs against emulated cloud services, so no live cloud account is required to work on this service day to day.
+Infrastructure is defined in code and deployed per environment, not configured by hand — every environment is reproducible from source. The same container image serves both listeners, so the public and private surfaces can never drift apart in version. Local development runs against emulated cloud services, so no live cloud account is required to work on this service day to day.
 
 ### 3.2 Rollout Plan
 
@@ -269,7 +262,7 @@ Logs are structured and machine-parseable, using Komodo's shared logging library
 
 #### 3.3.2 Metrics & Observability
 
-A basic liveness check (`GET /health`) confirms the service is running; a deeper readiness check (`GET /health/ready`) confirms it can reach its database, checked on the one listener (on each of the two listeners until decision 0008 is built).
+A basic liveness check (`GET /health`) confirms the service is running; a deeper readiness check (`GET /health/ready`) confirms it can reach its database, checked separately for both listeners.
 
 **Measurement in V1 is log-derived, deliberately.** Every request produces one structured log line carrying its outcome, timing, size, and identifiers; the numbers behind the alarms below are counted from those lines rather than published as measurements in their own right. This is the whole of V1's measurement story — the V1 work is making it dependable (alarms that reach a person, correct alarm configuration, coverage for the failure modes currently unwatched), not broadening it. The trade-off accepted: a change to the shape of a log line can silently break a metric derived from it.
 
@@ -568,7 +561,7 @@ The CDC Lambda is owned by `komodo-events-api`. This repo exports the stream ARN
 
 ### 7.1 Glossary
 
-- **Plane** — one of the two hard-separated route groups this service exposes through its one listener, chosen by the token's audience: public (customer access token) and private (service access token plus a per-route scope). A token for one plane never passes on the other (§1.1).
+- **Plane** — one of the two hard-separated access surfaces this service exposes: public (internet-facing, behind a load balancer and firewall, customer access token) and private (internal-only, service access token) (§1.1).
 - **Lookup index** — an internal structure that lets email-based sign-in lookups avoid scanning every record for an account; changing what it returns requires rebuilding it, not just reconfiguring it (§2.2).
 - **Default flag** — the marker on an Address or Payment Method record identifying it as the one used automatically; switching it is enforced as a single atomic operation so an account can never end up with two defaults, or none (§2.3).
 - **Conflict-safe write (optimistic concurrency)** — the mechanism behind Account Settings writes: every write carries an expected version of the record, and a write against a stale version is rejected so the caller can re-fetch and retry instead of silently overwriting another system's change (§2.3).
@@ -576,7 +569,7 @@ The CDC Lambda is owned by `komodo-events-api`. This repo exports the stream ARN
 - **Consent log** — the append-only, per-channel opt-in/opt-out audit trail; the sole system of record for marketing consent, kept separate from day-to-day communication preferences (§2.3, §5.5).
 - **Tag namespace** — the naming convention that determines which internal Komodo system may attach which labels to an account, so one system can't overwrite another's labels (§2.3).
 - **CDC (change data capture)** — the automatic pipeline that turns every database change into a domain event for other systems to consume (§2.2, §6).
-- **M2M (machine-to-machine)** — service-to-service authentication: one Komodo service proves its identity to another using its own service credentials, verified locally without an extra network round-trip; a service token is valid for 5 minutes (§1.1).
+- **M2M (machine-to-machine)** — service-to-service authentication: one Komodo service proves its identity to another using its own service credentials, verified locally without an extra network round-trip (§1.1).
 
 ### 7.2 Terminology for Non-Technical Readers
 
@@ -598,5 +591,4 @@ The CDC Lambda is owned by `komodo-events-api`. This repo exports the stream ARN
 - `TODO.md` — implementation sequencing and outstanding decisions.
 - `adr/001-v1-target-state.md` — V1 phase overview and decisions D0–D10.
 - `adr/002-v2-target-state.md` — V2 target-state decisions.
-- Komodo architecture decision 0008 (`architecture/docs/decisions/0008-every-program-has-one-door-and-the-token-picks-the-room.md`) — one listener per program; the token's audience and scope, not the network, gate internal routes. Approved 2026-10-21, not yet built.
 </content>
