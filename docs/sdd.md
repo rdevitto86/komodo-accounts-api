@@ -21,18 +21,18 @@ Accounts API is the canonical store for account identity data: profiles, account
 
 Both planes are served by the same deployable service through one door — one listener, one port — so the public and private surfaces can never drift apart in version. Customers reach that door through the load balancer and firewall; other Komodo programs reach it from inside Komodo's network. The token, not the network, decides which plane a request may enter (Komodo architecture decision 0008).
 
-**Not yet built.** The code still runs two listeners, a public port and a private port (`PORT` and `PORT_PRIVATE` in `cmd/server/main.go`). This section describes the approved target.
+**Not yet built.** The code still runs two listeners, a public port and a private port (`PORT` and `PORT_PRIVATE` in `cmd/server/main.go`). This section describes the approved target. Two gaps must close before it ships: private routes accept any service token today, with no per-route scope, and this service does not check the revocation list.
 
 | | Public | Private |
 |---|---|---|
 | Listener | The service's one listener | The same listener |
-| Exposure | Reachable from the internet, behind a load balancer and a web application firewall | Reachable from inside Komodo's network. Security groups stay, but they no longer define this plane — the token does |
+| Exposure | Reachable from the internet, behind a load balancer and a web application firewall | Reachable from inside Komodo's network, and from the internet through the same load balancer. Security groups stay, but they no longer define this plane — the token is the only fence |
 | Callers | The web/app front end, on behalf of a signed-in customer | Sibling Komodo services (auth-api, payments-api, order-api, communications-api) |
 | Auth | Customer access token (audience `komodo-apis:user`), signature-verified on every request; never accepted on a private route | Service access token (audience `komodo-apis:service`), issued through machine-to-machine credential exchange, valid for 5 minutes, signature-verified on every request; never accepted on a public route. Every private route also demands its own scope, granted only to services listed in auth-api's client registry |
 | Surface | Profile (including avatar upload), settings, addresses, payments (display-safe view only), preferences, consent, account closure, data export, unsubscribe verification | Credential read/write, passkey lifecycle, payment-method read, settings and tag writes, unsubscribe-token issuance |
-| Rate limiting | Global and per-route limits, enforced at the network edge and in-process | Trusted callers only; no public-style limiter |
+| Rate limiting | Global and per-route limits, enforced at the network edge and in-process | Redis token bucket keyed on the authenticated client, fail-closed, matching auth-api's contract |
 
-Every request's token is verified first, and its audience decides which plane's routes it may reach. A merge-gate test enumerates every private route and fails if any accepts a customer token or no token. A separate private door protected only against a stolen service token used from outside the network; the token gate works the same on managed containers and serverless functions, removes the second port, and lets one route serve both kinds of caller. Customer token lifetimes are unchanged; service tokens drop from 1 hour to 5 minutes.
+Every request's token is verified first, and its audience decides which plane's routes it may reach. A merge-gate test enumerates every private route and fails if any accepts a customer token or no token. A private second door would protect only against a stolen service token used from outside the network. The token gate works the same on managed containers and serverless functions, removes the second port, and lets one route serve both kinds of caller. Customer token lifetimes are unchanged; service tokens drop from 1 hour to 5 minutes.
 
 <br/>
 
@@ -133,7 +133,7 @@ Because erasure now happens while the customer waits rather than in a background
 | `/v1/accounts/{id}/settings/tags` | PUT | private | Update account tags (namespace-restricted) |
 | `/v1/accounts/{id}/communications/unsubscribe-token` | POST | private | Mint stateless unsubscribe token |
 
-The Plane column names the token audience a route accepts: **public** takes a customer token (`komodo-apis:user`), **private** takes a service token (`komodo-apis:service`) carrying that route's own scope, and **both** marks the health checks, which need no token.
+The Plane column names the token audience a route accepts: **public** takes a customer token (`komodo-apis:user`), except `/v1/accounts/exists` and `/v1/communications/unsubscribe`, which take no customer token (see the unauthenticated-routes threat row); **private** takes a service token (`komodo-apis:service`) carrying that route's own scope, and **both** marks the health checks, which need no token.
 
 `openapi.yaml` is the versioned contract source of truth for request/response shapes and the full error catalog — this table is a map of what exists, not a substitute for it.
 
