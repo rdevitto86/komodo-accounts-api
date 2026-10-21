@@ -19,18 +19,28 @@ Accounts API is the canonical store for account identity data: profiles, account
 
 ![System context](diagrams/system-context.png)
 
-Both planes are served by the same deployable service — one artifact, two listeners, so the public and private surfaces can never drift apart in version.
+Both planes are served by the same deployable service — one artifact, two listeners, so the public and private surfaces can never drift apart in version. This split door is Komodo-wide: every program keeps a public door for customers and a private door for other programs only (architecture decision 0008).
 
 | | Public | Private |
 |---|---|---|
-| Listener | Public listener, internet-facing | Private listener, internal-only |
-| Exposure | Reachable from the internet, behind a load balancer and a web application firewall | Reachable only from inside Komodo's private network — sibling services only |
-| Callers | The web/app front end, on behalf of a signed-in customer | Sibling Komodo services (auth-api, payments-api, order-api, communications-api) |
-| Auth | Customer access token, signature-verified on every request | Service access token, issued through machine-to-machine credential exchange, signature-verified on every request |
+| Listener | Public listener, internet-facing | Private listener, internal-only; a second port |
+| Exposure | Reachable from the internet, behind a load balancer and a web application firewall | Reachable only by the named calling services: the private port's network rule admits those services alone, not the whole private network |
+| Callers | The web/app front end, on behalf of a signed-in customer | The sibling Komodo services named in the consumer map (§2.1) |
+| Auth | Customer access token, signature-verified on every request | Service access token made out to this service alone, carrying the scope its route demands; it lasts 5 minutes and is checked for signature and revocation on every request |
 | Surface | Profile (including avatar upload), settings, addresses, payments (display-safe view only), preferences, consent, account closure, data export, unsubscribe verification | Credential read/write, passkey lifecycle, payment-method read, settings and tag writes, unsubscribe-token issuance |
-| Rate limiting | Global and per-route limits, enforced at the network edge and in-process | Trusted callers only; no public-style limiter |
+| Rate limiting | Global and per-route limits, enforced at the network edge and in-process | A limiter keyed on the calling service; when it cannot decide, it refuses the request |
 
 <br/>
+
+**Door rules.** Internal handlers are never mounted on the public listener. A test asserts that the public port returns "not found" for every internal route, and that every internal route rejects a customer token or no token. Customer tokens are unchanged. Binding a service token to its holder (DPoP or mutual TLS) is a later upgrade.
+
+**Not yet built.** The private-plane column above is the target; today's service falls short of it in five ways:
+
+- Any service token with any `svc:` scope passes every private route; no route demands its own scope.
+- This service accepts the shared service audience `komodo-apis:service`, not tokens made out to it alone.
+- It verifies tokens with a static public key and no revocation list, so a revoked token works until it expires.
+- The private port admits the whole private network, not named callers, and the private plane has no rate limiter.
+- No test yet asserts that the public port returns "not found" for every internal route.
 
 **Components:**
 
@@ -131,6 +141,8 @@ Because erasure now happens while the customer waits rather than in a background
 
 `openapi.yaml` is the versioned contract source of truth for request/response shapes and the full error catalog — this table is a map of what exists, not a substitute for it.
 
+The Plane column names the door that serves each route. Public routes are mounted only on the public listener, private routes only on the private listener; "both" covers the health checks alone. Each private route will demand its own scope (§1.1, "Not yet built").
+
 Rows marked **stub, 501** have a registered route, a published contract entry, and a handler that
 authenticates the caller and then returns `501 Not Implemented`. They are reserved surface, not
 working features; implementation is tracked in `TODO.md` §26. Two routes were retired rather than
@@ -208,6 +220,7 @@ Full per-event derivation notes — how each event is computed from the underlyi
 |---|---|
 | Unauthorized profile access | Every request requires a valid, signed access token; a customer's identity is always taken from their own verified token, never from a value they supply in the request path — closing off a class of "access someone else's account by editing the URL" attacks |
 | Payment data exposure | The processor's card reference is never included in any response except the one internal, tightly-scoped route built for the payments system to read it, which itself requires a verified service credential |
+| Stolen service token | A service token can act for every customer, so the target design narrows what a stolen one can do: it is made out to one service, carries only its route's scope, expires after 5 minutes, can be revoked, and is useless from the internet because the private port admits only named callers. Binding the token to its holder is a later upgrade. Most of this is not yet enforced (§1.1, "Not yet built") |
 | Personal data in logs | Logs carry only an account identifier — never a name, email, or phone number — enforced as a standing redaction rule |
 | Incomplete legal erasure | Erasure runs as a series of atomic, all-or-nothing batches across every piece of the account's data, including exported files and the stored photo, in the single operation that performs closure; an unusually large account (over roughly 100 records) spans more than one batch, and a batch failing partway reports a failed request that can be safely retried rather than a success with data left behind |
 | Irreversible closure by mistake or stolen session | Closure cannot be undone, so the request must prove intent before it is honored: today by carrying the account's own email address, and in future additionally by requiring a sign-in within the last few minutes. An unconfirmed request is rejected outright |
@@ -561,7 +574,7 @@ The CDC Lambda is owned by `komodo-events-api`. This repo exports the stream ARN
 
 ### 7.1 Glossary
 
-- **Plane** — one of the two hard-separated access surfaces this service exposes: public (internet-facing, behind a load balancer and firewall, customer access token) and private (internal-only, service access token) (§1.1).
+- **Plane** — one of the two hard-separated access surfaces this service exposes: public (internet-facing, behind a load balancer and firewall, customer access token) and private (a second port open only to named calling services, service access token) (§1.1).
 - **Lookup index** — an internal structure that lets email-based sign-in lookups avoid scanning every record for an account; changing what it returns requires rebuilding it, not just reconfiguring it (§2.2).
 - **Default flag** — the marker on an Address or Payment Method record identifying it as the one used automatically; switching it is enforced as a single atomic operation so an account can never end up with two defaults, or none (§2.3).
 - **Conflict-safe write (optimistic concurrency)** — the mechanism behind Account Settings writes: every write carries an expected version of the record, and a write against a stale version is rejected so the caller can re-fetch and retry instead of silently overwriting another system's change (§2.3).
@@ -591,4 +604,5 @@ The CDC Lambda is owned by `komodo-events-api`. This repo exports the stream ARN
 - `TODO.md` — implementation sequencing and outstanding decisions.
 - `adr/001-v1-target-state.md` — V1 phase overview and decisions D0–D10.
 - `adr/002-v2-target-state.md` — V2 target-state decisions.
+- Komodo architecture decision 0008, `docs/decisions/0008-internal-routes-sit-behind-a-private-door.md` in the architecture repo — the split door and service-token rules (§1.1).
 </content>
