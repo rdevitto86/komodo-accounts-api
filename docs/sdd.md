@@ -25,10 +25,10 @@ Both planes are served by the same deployable service — one artifact, two list
 |---|---|---|
 | Listener | Public listener, internet-facing | Private listener, internal-only; a second port |
 | Exposure | Reachable from the internet, behind a load balancer and a web application firewall | Reachable only by the named calling services: the private port's network rule admits those services alone, not the whole private network |
-| Callers | The web/app front end, on behalf of a signed-in customer | The sibling Komodo services named in the consumer map (§2.1) |
+| Callers | The web/app front end, on behalf of a signed-in customer | The consumers in the map (§2.1) whose pattern includes private REST; under decision 0007 the firewall names their deployables |
 | Auth | Customer access token, signature-verified on every request | Service access token made out to this service alone, carrying the scope its route demands; it lasts 5 minutes and is checked for signature and revocation on every request |
 | Surface | Profile (including avatar upload), settings, addresses, payments (display-safe view only), preferences, consent, account closure, data export, unsubscribe verification | Credential read/write, passkey lifecycle, payment-method read, settings and tag writes, unsubscribe-token issuance |
-| Rate limiting | Global and per-route limits, enforced at the network edge and in-process | A limiter keyed on the calling service; when it cannot decide, it refuses the request |
+| Rate limiting | Global and per-route limits, enforced at the network edge and in-process | Trusted callers only; no public-style limiter |
 
 <br/>
 
@@ -39,7 +39,7 @@ Both planes are served by the same deployable service — one artifact, two list
 - Any service token with any `svc:` scope passes every private route; no route demands its own scope.
 - This service accepts the shared service audience `komodo-apis:service`, not tokens made out to it alone.
 - It verifies tokens with a static public key and no revocation list, so a revoked token works until it expires.
-- The private port admits the whole private network, not named callers, and the private plane has no rate limiter.
+- The private port admits the whole private network, not named callers.
 - No test yet asserts that the public port returns "not found" for every internal route.
 
 **Components:**
