@@ -8,13 +8,14 @@ changes, patch versions cover small, non-breaking changes.
 
 ## [Unreleased]
 ### Changed
-- Bumped `komodo-forge-sdk-go` from `v0.27.2` to `v0.38.0` and dropped the `replace` directive that pointed it at a local checkout, per `standards-go`'s pinned-published-version rule.
+- Bumped `komodo-forge-sdk-go` from `v0.27.2` to `v0.38.1` and dropped the `replace` directive that pointed it at a local checkout, per `standards-go`'s pinned-published-version rule.
 - `internal/server/mux.go` now handles the `api/routes.NewRouter`/`(*RouteGroup).Group` signature change (`(*RouteGroup, error)`) via a `mustGroup` helper that panics on the startup-only, can't-happen error case.
 - `internal/api/profile.go`/`settings.go` now read the authenticated subject and scopes via the SDK's `GetSubject`/`GetScopes` context accessors instead of reaching for the now-renamed `USER_ID_KEY`/`SCOPES_KEY` constants directly.
 - `cmd/server/setup.go` now owns `JWT_PUBLIC_KEY`/`JWT_ISSUER` as local Secrets Manager key constants — the SDK's `security` package no longer exports them — and uses the SDK's PascalCase `http` package constants (`RateLimitRPS`, `RateLimitBurst`, `IdempotencyTTLSec`) in place of the removed `SCREAMING_SNAKE_CASE` ones.
 - Regenerated `test/mocks/mock_dynamodb.go` for the SDK's new `aws/dynamodb.API.UpdateWithVersion` method.
 ### Fixed
 - `cmd/server/setup_test.go` fixtures were missing `ACCOUNTS_API_CLIENT_SECRET`, failing `setBootstrapSecrets`'s required-key check independent of the SDK bump.
+- `validateStatus` no longer lowercases its input, so an account status must be exactly `active`, `suspended` or `closed`; `ACTIVE` is now rejected, as `TestValidateStatus` expects.
 
 ## [0.8.3] - 2026-09-15
 ### Added

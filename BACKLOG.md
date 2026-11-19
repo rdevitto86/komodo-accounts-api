@@ -184,13 +184,6 @@ The handler/db god-files are already split per-resource; the `repository` interf
 |---|---|---|---|
 | `SUB-01.1.22.1` | `[Impl]` | Parallelize the six reads in `gatherProfileExportData` with `errgroup` | `go test -run TestGatherProfileExportData ./internal/api/...` |
 
-#### [TSK-01.1.23] Reconcile `validateStatus` with its own test's case-sensitivity expectation [P: L] [TODO]
-`validateStatus` (`internal/api/settings.go:283-289`) lowercases its input with `strings.ToLower` before matching, so `"ACTIVE"` is accepted; `TestValidateStatus` (`internal/api/settings_test.go`) asserts `"ACTIVE"` is rejected. Pre-existing mismatch, unrelated to and uncovered by the `komodo-forge-sdk-go` upgrade to `v0.38.0` — decide which side is the intended contract (case-insensitive input vs. a stored-value invariant) and fix the other.
-
-| Subtask | Category | Work | Done when |
-|---|---|---|---|
-| `SUB-01.1.23.1` | `[Impl]` | Align `validateStatus` and its test on one case-sensitivity contract | `go test -run TestValidateStatus ./internal/api/...` |
-
 ---
 
 ### [TG-01.2] Account Profile & Closure
