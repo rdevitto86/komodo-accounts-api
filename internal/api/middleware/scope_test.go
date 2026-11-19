@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -24,9 +23,7 @@ func TestScopeObservabilityMiddleware_PassesThroughUntouched(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/accounts/credentials", http.NoBody)
-	req = req.WithContext(context.WithValue(
-		req.Context(), ctxKeys.SCOPES_KEY, []string{"svc:accounts", "svc:billing"},
-	))
+	req = req.WithContext(ctxKeys.WithScopes(req.Context(), []string{"svc:accounts", "svc:billing"}))
 	rec := httptest.NewRecorder()
 
 	JWTScopeObservabilityMiddleware(next).ServeHTTP(rec, req)

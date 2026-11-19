@@ -233,7 +233,7 @@ func (s *Service) UpdateSettingsTags(
 
 // Helper function to extract service name from request scopes
 func callerServiceFromScopes(req *http.Request) string {
-	scopes, _ := req.Context().Value(ctxKeys.SCOPES_KEY).([]string)
+	scopes := ctxKeys.GetScopes(req.Context())
 	for _, s := range scopes {
 		if strings.HasPrefix(s, "svc:") {
 			return strings.TrimPrefix(s, "svc:")
@@ -281,7 +281,7 @@ func expectedTagCount(current, add, remove []string) int {
 
 // Validates an account status.
 func validateStatus(s string) error {
-	switch strings.ToLower(s) {
+	switch s {
 	case "active", "suspended", "closed":
 		return nil
 	}

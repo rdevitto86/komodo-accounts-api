@@ -44,16 +44,18 @@ const (
 	defaultUserAudience    = "komodo-apis:user"
 	defaultServiceAudience = "komodo-apis:service"
 
+	jwtPublicKeySecret      = "JWT_PUBLIC_KEY"
+	jwtIssuerSecret         = "JWT_ISSUER"
 	unsubscribeTokenSecret  = "UNSUBSCRIBE_TOKEN_SECRET"
 	accountsAPIClientSecret = "ACCOUNTS_API_CLIENT_SECRET"
 )
 
 var secretKeys = []string{
-	jwt.JWT_PUBLIC_KEY,
-	jwt.JWT_ISSUER,
-	sdkhttp.IDEMPOTENCY_TTL_SEC,
-	sdkhttp.RATE_LIMIT_RPS,
-	sdkhttp.RATE_LIMIT_BURST,
+	jwtPublicKeySecret,
+	jwtIssuerSecret,
+	sdkhttp.IdempotencyTTLSec,
+	sdkhttp.RateLimitRPS,
+	sdkhttp.RateLimitBurst,
 	unsubscribeTokenSecret,
 	accountsAPIClientSecret,
 }
@@ -119,11 +121,11 @@ func bootstrap() bootstrapResult {
 	}
 
 	var rps float64 = defaultGeneralRPS
-	if v, err := strconv.ParseFloat(strings.TrimSpace(fetchedSecrets[sdkhttp.RATE_LIMIT_RPS]), 64); err == nil && v > 0 {
+	if v, err := strconv.ParseFloat(strings.TrimSpace(fetchedSecrets[sdkhttp.RateLimitRPS]), 64); err == nil && v > 0 {
 		rps = v
 	}
 	var burst float64 = defaultGeneralBurst
-	if v, err := strconv.ParseFloat(strings.TrimSpace(fetchedSecrets[sdkhttp.RATE_LIMIT_BURST]), 64); err == nil && v > 0 {
+	if v, err := strconv.ParseFloat(strings.TrimSpace(fetchedSecrets[sdkhttp.RateLimitBurst]), 64); err == nil && v > 0 {
 		burst = v
 	}
 
@@ -298,19 +300,19 @@ func setBootstrapSecrets(vals map[string]string) (
 	clientSecret string,
 	err error,
 ) {
-	jwtPublicKey = vals[jwt.JWT_PUBLIC_KEY]
-	jwtIssuer = vals[jwt.JWT_ISSUER]
+	jwtPublicKey = vals[jwtPublicKeySecret]
+	jwtIssuer = vals[jwtIssuerSecret]
 	unsubscribeKey = []byte(vals[unsubscribeTokenSecret])
 	clientSecret = vals[accountsAPIClientSecret]
 
 	idempotencyTTLSec = defaultIdempotencyTTLSec
-	if v, parseErr := strconv.ParseInt(vals[sdkhttp.IDEMPOTENCY_TTL_SEC], 10, 64); parseErr == nil && v > 0 {
+	if v, parseErr := strconv.ParseInt(vals[sdkhttp.IdempotencyTTLSec], 10, 64); parseErr == nil && v > 0 {
 		idempotencyTTLSec = v
 	}
 
 	if missing := missingKeys(
-		envVar{jwt.JWT_PUBLIC_KEY, jwtPublicKey},
-		envVar{jwt.JWT_ISSUER, jwtIssuer},
+		envVar{jwtPublicKeySecret, jwtPublicKey},
+		envVar{jwtIssuerSecret, jwtIssuer},
 		envVar{unsubscribeTokenSecret, string(unsubscribeKey)},
 		envVar{accountsAPIClientSecret, clientSecret},
 	); len(missing) > 0 {

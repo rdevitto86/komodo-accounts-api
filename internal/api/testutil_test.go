@@ -44,13 +44,11 @@ func makeRequest(t *testing.T, method, path string, body any) *http.Request {
 }
 
 func withAccountId(req *http.Request, id string) *http.Request {
-	ctx := context.WithValue(req.Context(), ctxKeys.USER_ID_KEY, id)
-	return req.WithContext(ctx)
+	return req.WithContext(ctxKeys.WithSubject(req.Context(), id))
 }
 
 func withScopes(req *http.Request, scopes []string) *http.Request {
-	ctx := context.WithValue(req.Context(), ctxKeys.SCOPES_KEY, scopes)
-	return req.WithContext(ctx)
+	return req.WithContext(ctxKeys.WithScopes(req.Context(), scopes))
 }
 
 type mockS3 struct {
