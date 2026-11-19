@@ -281,7 +281,7 @@ func expectedTagCount(current, add, remove []string) int {
 
 // Validates an account status.
 func validateStatus(s string) error {
-	switch strings.ToLower(s) {
+	switch s {
 	case "active", "suspended", "closed":
 		return nil
 	}
