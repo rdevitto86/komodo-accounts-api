@@ -7,7 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.20.48
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.59.0
 	github.com/oapi-codegen/runtime v1.4.1
-	github.com/rdevitto86/komodo-forge-sdk-go v0.38.0
+	github.com/rdevitto86/komodo-forge-sdk-go v0.38.1
 	github.com/segmentio/ksuid v1.0.4
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/mock v0.6.0
